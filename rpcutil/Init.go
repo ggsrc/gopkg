@@ -37,9 +37,9 @@ func WithAppName(appName string) RpcInitHelperOption {
 	}
 }
 
-func WithDebug() RpcInitHelperOption {
+func WithDebug(debug bool) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
-		o.Debug = true
+		o.Debug = debug
 	}
 }
 
