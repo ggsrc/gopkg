@@ -1,0 +1,14 @@
+go 1.22.3
+
+use (
+	database/cache
+	database/wpgx
+	env
+	goodns
+	zerolog
+	rpcutil
+	health
+	grpc
+	metric
+	interceptor
+)

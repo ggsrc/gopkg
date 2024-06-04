@@ -1,0 +1,52 @@
+name: code coverage
+
+on:
+  push:
+    branches:
+      - 'main'
+  pull_request:
+  workflow_call:
+    inputs:
+      app:
+        required: true
+        type: string
+      commit-sha:
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      GOPRIVATE: github.com/ggsrc/*
+      GITHUB_ACCESS_TOKEN: ${{ secrets.CICD_DOCKER_BUILD_PAT }}
+    services:
+      redis:
+        image: redis
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:14.5
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: my-secret
+          POSTGRES_DB: user_test_db
+    name: code coverage
+    defaults:
+      run:
+        working-directory: ./
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v3
+        with:
+          go-version: "1.21"
+          check-latest: true
+          cache: true
+      - run: git config --global url.https://$GITHUB_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
+      - name: Run coverage
+        run: make codecov
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{secrets.CODECOV_TOKEN}}
