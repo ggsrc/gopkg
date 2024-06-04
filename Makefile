@@ -10,18 +10,18 @@ APPNAME=$(NAME)_test
 
 lint:
 	@echo "--> Running linter"
-	@golangci-lint run
+	@go list -f '{{.Dir}}' -m | xargs -I {} golangci-lint run {}/... --verbose
 
 lint-fix:
 	@echo "--> Running linter auto fix"
-	@golangci-lint run --fix
+	@go list -f '{{.Dir}}' -m | xargs -I {} golangci-lint run {}/... --fix
 
 build:
 	@go list -f '{{.Dir}}' -m | xargs -I {} go build -v {}/...
 
 
 test:
-	@go list -f '{{.Dir}}' -m | xargs -I {} go test -v {}/...
+	@go test github.com/ggsrc/gopkg/...
 
 codecov:
 	export ENV=test && \
