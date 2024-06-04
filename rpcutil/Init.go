@@ -2,6 +2,7 @@ package rpcutil
 
 import (
 	"context"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -11,7 +12,7 @@ import (
 // Defaults for RpcInitHelperOptions.
 const (
 	DefaultDebug         = true
-	DefaultInitDBTimeout = 5000
+	DefaultInitDBTimeout = time.Second * 5
 )
 
 // RpcInitHelperOption configures init.
