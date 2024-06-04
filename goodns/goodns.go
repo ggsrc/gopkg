@@ -50,7 +50,7 @@ func queryA(ctx context.Context, domain string, dnsServer *string, useTCP bool) 
 	req.Id = dns.Id()
 	req.RecursionDesired = true
 	req.Question = make([]dns.Question, 1)
-	req.Question[0] = dns.Question{dns.Fqdn(domain), dns.TypeA, dns.ClassINET}
+	req.Question[0] = dns.Question{Name: dns.Fqdn(domain), Qtype: dns.TypeA, Qclass: dns.ClassINET}
 	resp, _, err := c.ExchangeContext(ctx, req, server)
 	if err != nil {
 		return nil, err

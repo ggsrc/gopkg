@@ -3,8 +3,9 @@ package wpgx
 import (
 	"context"
 	"fmt"
-	"github.com/stumble/wpgx"
 	"time"
+
+	"github.com/stumble/wpgx"
 )
 
 func InitDB(ctx context.Context, timeout time.Duration) (*wpgx.Pool, error) {

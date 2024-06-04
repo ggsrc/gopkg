@@ -2,8 +2,10 @@ package rpcutil
 
 import (
 	"context"
-	gg_grpc "github.com/ggsrc/gopkg/grpc"
+
 	"google.golang.org/grpc"
+
+	gg_grpc "github.com/ggsrc/gopkg/grpc"
 )
 
 // Defaults for RpcInitHelperOptions.

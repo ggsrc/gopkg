@@ -3,8 +3,6 @@ package grpc
 import (
 	"context"
 	"fmt"
-	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
-	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"net"
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
@@ -12,7 +10,10 @@ import (
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+
+	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
 )
 
 type Server struct {

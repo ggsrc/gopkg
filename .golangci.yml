@@ -7,8 +7,6 @@ run:
   # but default dirs are skipped independently of this option's value (see skip-dirs-use-default).
   # "/" will be replaced by current OS file path separator to properly work on Windows.
 
-  modules-download-mode: mod
-
 linters:
   disable:
     # a subset of unused (and with some weird bugs).

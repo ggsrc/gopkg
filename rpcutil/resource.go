@@ -2,6 +2,17 @@ package rpcutil
 
 import (
 	"context"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+	"github.com/stumble/dcache"
+	"github.com/stumble/wpgx"
+	"github.com/uptrace/uptrace-go/uptrace"
+
 	"github.com/ggsrc/gopkg/database/cache"
 	db_wpgx "github.com/ggsrc/gopkg/database/wpgx"
 	"github.com/ggsrc/gopkg/env"
@@ -10,16 +21,6 @@ import (
 	"github.com/ggsrc/gopkg/metric"
 	"github.com/ggsrc/gopkg/zerolog"
 	"github.com/ggsrc/gopkg/zerolog/log"
-	"os"
-	"os/signal"
-	"syscall"
-
-	"github.com/redis/go-redis/v9"
-	"github.com/stumble/dcache"
-	"github.com/stumble/wpgx"
-	"github.com/uptrace/uptrace-go/uptrace"
-	"sync"
-	"time"
 )
 
 var (
