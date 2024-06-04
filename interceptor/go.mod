@@ -6,7 +6,7 @@ replace github.com/ggsrc/gopkg/env => ../env
 
 require (
 	github.com/getsentry/sentry-go v0.28.0
-	github.com/ggsrc/gopkg/env v0.0.0-00010101000000-000000000000
+	github.com/ggsrc/gopkg/env v0.0.0-20240604065326-0b574afd0001
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/rs/zerolog v1.33.0
 	google.golang.org/grpc v1.64.0

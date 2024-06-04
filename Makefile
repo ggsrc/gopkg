@@ -1,3 +1,5 @@
+TEST_DIRS := $(shell go list -f '{{.Dir}}' -m | xargs -I {} go list {}/...)
+
 lint:
 	@echo "--> Running linter"
 	@golangci-lint run
@@ -17,3 +19,7 @@ build:
 
 test:
 	@go list -f '{{.Dir}}' -m | xargs -I {} go test -v {}/...
+
+codecov:
+	export ENV=test && \
+		go test ${TEST_DIRS} -coverprofile=coverage.txt -covermode=atomic -p 1

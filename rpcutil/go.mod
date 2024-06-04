@@ -13,11 +13,11 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-00010101000000-000000000000
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-00010101000000-000000000000
-	github.com/ggsrc/gopkg/env v0.0.0-00010101000000-000000000000
-	github.com/ggsrc/gopkg/grpc v0.0.0-00010101000000-000000000000
-	github.com/ggsrc/gopkg/zerolog v0.0.0-00010101000000-000000000000
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20240604065326-0b574afd0001
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240604065326-0b574afd0001
+	github.com/ggsrc/gopkg/env v0.0.0-20240604065326-0b574afd0001
+	github.com/ggsrc/gopkg/grpc v0.0.0-20240604065326-0b574afd0001
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240604065326-0b574afd0001
 	github.com/redis/go-redis/v9 v9.5.2
 	github.com/stumble/dcache v0.2.0
 	github.com/stumble/wpgx v0.2.2
