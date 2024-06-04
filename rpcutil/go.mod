@@ -34,8 +34,8 @@ require (
 	github.com/coocood/freecache v1.2.4 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
-	github.com/ggsrc/gopkg/goodns v0.0.0-00010101000000-000000000000 // indirect
-	github.com/ggsrc/gopkg/interceptor v0.0.0-00010101000000-000000000000 // indirect
+	github.com/ggsrc/gopkg/goodns v0.0.0-20240604065326-0b574afd0001 // indirect
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240604065326-0b574afd0001 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
