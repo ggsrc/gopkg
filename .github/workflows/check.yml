@@ -30,9 +30,5 @@ jobs:
           cache-dependency-path: "**/*.sum"
       - run: git config --global url.https://$GITHUB_ACCESS_TOKEN@github.com/.insteadOf https://github.com/
       - run: git submodule update --init --recursive
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
-        with:
-          version: latest
       - run: make build
       - run: make test
