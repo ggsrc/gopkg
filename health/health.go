@@ -16,7 +16,7 @@ import (
 
 type Server struct {
 	conf      *Config
-	hooks     []func(ctx context.Context) error
+	hooks     []Checkable
 	stop      bool
 	hooksLock sync.RWMutex
 
@@ -45,7 +45,7 @@ func New(conf *Config, hc ...HealthCheckable) *Server {
 		conf = &Config{}
 		envconfig.MustProcess("healthcheck", conf)
 	}
-	var hooks []func(ctx context.Context) error
+	var hooks []Checkable
 	for _, h := range hc {
 		hooks = append(hooks, h.OK)
 	}
@@ -95,7 +95,7 @@ func (s *Server) readinessHandler() func(http.ResponseWriter, *http.Request) {
 	}
 }
 
-func (s *Server) AddHooks(hooks ...func(ctx context.Context) error) {
+func (s *Server) AddHooks(hooks ...Checkable) {
 	s.hooksLock.Lock()
 	defer s.hooksLock.Unlock()
 	s.hooks = append(s.hooks, hooks...)
@@ -141,8 +141,10 @@ func (s *Server) Stop() {
 	s.stop = true
 }
 
+type Checkable func(context.Context) error
+
 // GoCheck is a helper to run multiple check functions in parallel and fail if one fails
-func GoCheck(ctx context.Context, toCheck ...func(context.Context) error) error {
+func GoCheck(ctx context.Context, toCheck ...Checkable) error {
 	ch := make(chan error, len(toCheck))
 	for _, f := range toCheck {
 		go func(f func(context.Context) error) {
@@ -197,7 +199,7 @@ func GoCheck(ctx context.Context, toCheck ...func(context.Context) error) error 
 // 	}
 // }
 
-// CheckRedis is helper function to ping redis
+// CheckRedisV9 is helper function to ping redis
 func CheckRedisV9(redis redisV9.UniversalClient) func(context.Context) error {
 	return func(ctx context.Context) error {
 		ch := make(chan error)

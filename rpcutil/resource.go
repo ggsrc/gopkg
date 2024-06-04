@@ -6,8 +6,13 @@ import (
 	db_wpgx "github.com/ggsrc/gopkg/database/wpgx"
 	"github.com/ggsrc/gopkg/env"
 	"github.com/ggsrc/gopkg/grpc"
+	"github.com/ggsrc/gopkg/health"
+	"github.com/ggsrc/gopkg/metric"
 	"github.com/ggsrc/gopkg/zerolog"
 	"github.com/ggsrc/gopkg/zerolog/log"
+	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
@@ -22,11 +27,59 @@ var (
 )
 
 type Resource struct {
-	Pool        *wpgx.Pool
+	AppName     string
+	WPGXPool    *wpgx.Pool
 	RedisClient redis.UniversalClient
 	DCache      *dcache.DCache
 
-	grpcServer *grpc.Server
+	GrpcServer *grpc.Server
+
+	HealthChecker *health.Server
+	Metricer      *metric.Server
+}
+
+func (r *Resource) Start(ctx context.Context) {
+	var wg sync.WaitGroup
+
+	grpcErrCh, healthErrCh, metricErrCh :=
+		make(chan error, 1),
+		make(chan error, 1),
+		make(chan error, 1)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		log.Warn().Msg("GRPC server start")
+		grpcErrCh <- r.GrpcServer.Start()
+	}()
+
+	go func() {
+		log.Warn().Msg("HealthCheck server start")
+		healthErrCh <- r.HealthChecker.Start()
+	}()
+
+	go func() {
+		log.Warn().Msg("Metric server start")
+		metricErrCh <- r.Metricer.Start()
+	}()
+
+	// Monitor system signal like SIGINT and SIGTERM
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	select {
+	case osSig := <-sig:
+		log.Error().Msgf("received signal %s; shutting down", osSig)
+		r.ShutDown(ctx)
+	case err := <-healthErrCh:
+		log.Error().Err(err).Msg("health server error; shutting down")
+		r.ShutDown(ctx)
+	case err := <-metricErrCh:
+		log.Error().Err(err).Msg("metricer server error; shutting down")
+		r.ShutDown(ctx)
+	case err := <-grpcErrCh:
+		log.Error().Err(err).Msg("grpc server error; shutting down")
+		r.ShutDown(ctx)
+	}
 }
 
 func (r *Resource) ShutDown(ctx context.Context) {
@@ -39,8 +92,8 @@ func (r *Resource) ShutDown(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		// shutdown grpc server
-		if r.grpcServer != nil {
-			if err := r.grpcServer.Shutdown(ctx); err != nil {
+		if r.GrpcServer != nil {
+			if err := r.GrpcServer.Shutdown(ctx); err != nil {
 				log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown grpc server")
 			}
 		}
@@ -48,8 +101,8 @@ func (r *Resource) ShutDown(ctx context.Context) {
 
 	wg.Wait()
 	// close db connection pool
-	if r.Pool != nil {
-		r.Pool.Close()
+	if r.WPGXPool != nil {
+		r.WPGXPool.Close()
 	}
 	// close dcache connection
 	if r.DCache != nil {
@@ -66,9 +119,23 @@ func (r *Resource) ShutDown(ctx context.Context) {
 	}
 }
 
+func (r *Resource) OK(ctx context.Context) error {
+	checker := []health.Checkable{}
+	if r.DCache != nil {
+		checker = append(checker, r.DCache.Ping)
+	}
+	if r.WPGXPool != nil {
+		checker = append(checker, r.WPGXPool.Ping)
+	}
+	return health.GoCheck(
+		ctx,
+		checker...,
+	)
+}
+
 var (
 	resource *Resource
-	InitRes  sync.Once
+	initRes  sync.Once
 )
 
 func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error) {
@@ -76,14 +143,17 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 		o.AppName = env.ServiceName()
 	}
 	zerolog.InitLogger(o.Debug)
-	myResource := &Resource{}
+	myResource := &Resource{
+		AppName: o.AppName,
+	}
+
 	// init db
 	if o.InitWpgx {
 		db, err := db_wpgx.InitDB(ctx, DefaultInitDBTimeout)
 		if err != nil {
 			return nil, err
 		}
-		myResource.Pool = db
+		myResource.WPGXPool = db
 	}
 	// init cache
 	if o.InitCache {
@@ -96,7 +166,15 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	}
 	// init grpc
 	if o.InitGrpcServer {
-		myResource.grpcServer = grpc.NewServer(o.AppName, o.GrpcServerConf, o.GrpcServerOpt...)
+		myResource.GrpcServer = grpc.NewServer(o.AppName, o.GrpcServerConf, o.GrpcServerOpt...)
+	}
+	// init health check
+	if o.InitHealthCheck {
+		myResource.HealthChecker = health.New(nil, myResource)
+	}
+	// init metric
+	if o.InitMetric {
+		myResource.Metricer = metric.New(nil)
 	}
 	return myResource, nil
 }

@@ -24,6 +24,7 @@ type RpcInitHelperOptions struct {
 	InitWpgx        bool
 	InitCache       bool
 	InitHealthCheck bool
+	InitMetric      bool
 
 	InitGrpcServer bool
 	GrpcServerConf *gg_grpc.ServerConfig
@@ -68,6 +69,12 @@ func WithHealthCheckInit() RpcInitHelperOption {
 	}
 }
 
+func WithMetricInit() RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.InitMetric = true
+	}
+}
+
 func InitResource(ctx context.Context, options ...RpcInitHelperOption) (*Resource, error) {
 	o := RpcInitHelperOptions{
 		Debug: DefaultDebug,
@@ -77,7 +84,7 @@ func InitResource(ctx context.Context, options ...RpcInitHelperOption) (*Resourc
 	}
 
 	var err error
-	InitRes.Do(func() {
+	initRes.Do(func() {
 		var res *Resource
 		res, err = NewResource(ctx, o)
 		resource = res

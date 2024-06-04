@@ -11,4 +11,5 @@ use (
 	grpc
 	metric
 	interceptor
+	utils
 )
