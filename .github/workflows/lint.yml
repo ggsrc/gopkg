@@ -19,7 +19,5 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.58
+      - run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+      - run: make lint
