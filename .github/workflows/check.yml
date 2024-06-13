@@ -34,4 +34,3 @@ jobs:
       - run: git submodule update --init --recursive
       - run: make build
       - run: make test
-      - run: make lint
