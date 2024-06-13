@@ -61,19 +61,17 @@ func New(conf *Config, hc ...HealthCheckable) *Server {
 
 func (s *Server) start() {
 	for {
-		select {
-		case <-time.After(s.conf.ProbeInterval):
-			ctx, cancel := context.WithTimeout(context.Background(), s.conf.ProbeTimeout)
-			s.hooksLock.RLock()
-			if err := GoCheck(ctx, s.hooks...); err != nil {
-				s.consecutive++
-				log.Error().Err(err).Msg("healthcheck failed")
-			} else {
-				s.consecutive = 0
-			}
-			s.hooksLock.RUnlock()
-			cancel()
+		<-time.After(s.conf.ProbeInterval)
+		ctx, cancel := context.WithTimeout(context.Background(), s.conf.ProbeTimeout)
+		s.hooksLock.RLock()
+		if err := GoCheck(ctx, s.hooks...); err != nil {
+			s.consecutive++
+			log.Error().Err(err).Msg("healthcheck failed")
+		} else {
+			s.consecutive = 0
 		}
+		s.hooksLock.RUnlock()
+		cancel()
 	}
 }
 
@@ -130,8 +128,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/health/ready", s.readinessHandler())
 	mux.HandleFunc("/health/alive", s.livenessHandler())
 	healthServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", s.conf.Port),
-		Handler: mux,
+		Addr:              fmt.Sprintf(":%d", s.conf.Port),
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 	return healthServer.ListenAndServe()
 }

@@ -62,7 +62,7 @@ func (c *Client) Dial(ctx context.Context, addr string, opt ...grpc.DialOption) 
 		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	)
-	return grpc.DialContext(ctx, addr, opt...)
+	return grpc.NewClient(addr, opt...)
 }
 
 // From https://github.com/grpc-ecosystem/go-grpc-middleware/blob/master/chain.go

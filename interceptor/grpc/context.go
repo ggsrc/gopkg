@@ -15,23 +15,33 @@ func ContextUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 		// set request source
 		md := metautils.ExtractIncoming(ctx)
 		requestSource := md.Get(pkgmetadata.CTX_KEY_REQUEST_SOURCE)
+		//nolint:golint,staticcheck
 		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_REQUEST_SOURCE, requestSource)
-
-		// set jwt
-		jwtToken := md.Get(pkgmetadata.CTX_KEY_JWT_TOKEN)
-		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_JWT_TOKEN, jwtToken)
 
 		// set access token
 		accessToken := md.Get(pkgmetadata.CTX_KEY_ACCESS_TOKEN)
+		//nolint:golint,staticcheck
 		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_ACCESS_TOKEN, accessToken)
 
 		// set galxeId
 		galxeId := md.Get(pkgmetadata.CTX_KEY_GALXE_ID)
+		//nolint:golint,staticcheck
 		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_GALXE_ID, galxeId)
 
 		// set origin
 		origin := md.Get(pkgmetadata.CTX_KEY_ORIGIN)
+		//nolint:golint,staticcheck
 		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_ORIGIN, origin)
+
+		// set account
+		accountId := md.Get(pkgmetadata.CTX_KEY_ACCOUNT_ID)
+		//nolint:golint,staticcheck
+		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_ACCOUNT_ID, accountId)
+
+		// set account type
+		accountType := md.Get(pkgmetadata.CTX_KEY_ACCOUNT_TYPE)
+		//nolint:golint,staticcheck
+		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_ACCOUNT_TYPE, accountType)
 
 		ret, err := handler(ctx, req)
 		return ret, err

@@ -12,6 +12,9 @@ const (
 var (
 	serviceName    string
 	setServiceName sync.Once
+
+	serviceVersion    string
+	setServiceVersion sync.Once
 )
 
 func init() {
@@ -28,6 +31,20 @@ func init() {
 	if serviceName == "" {
 		serviceName = UnknownServiceName
 	}
+
+	serviceVersion = os.Getenv("SERVICE_VERSION")
+	if serviceVersion == "" {
+		serviceVersion = os.Getenv("service_version")
+	}
+	if serviceVersion == "" {
+		serviceVersion = os.Getenv("service-version")
+	}
+	if serviceVersion == "" {
+		serviceVersion = os.Getenv("OTEL_SERVICE_VERSION")
+	}
+	if serviceVersion == "" {
+		serviceVersion = os.Getenv("GIT_SHA")
+	}
 }
 
 func SetServiceName(name string) {
@@ -38,4 +55,14 @@ func SetServiceName(name string) {
 
 func ServiceName() string {
 	return serviceName
+}
+
+func ServiceVersion() string {
+	return serviceVersion
+}
+
+func SetServiceVersion(version string) {
+	setServiceVersion.Do(func() {
+		serviceVersion = version
+	})
 }
