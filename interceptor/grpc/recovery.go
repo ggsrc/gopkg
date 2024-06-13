@@ -16,7 +16,10 @@ import (
 const RecoverLogKey = "khturNQNRuAJ"
 
 func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
-	sentry.Init(sentry.ClientOptions{Dsn: ravenDSN})
+	err := sentry.Init(sentry.ClientOptions{Dsn: ravenDSN})
+	if err != nil {
+		log.Err(err).Msg("sentry init failed, ignore it and continue...")
+	}
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -41,7 +44,10 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 }
 
 func SentryUnaryClientInterceptor(ravenDSN string) grpc.UnaryClientInterceptor {
-	sentry.Init(sentry.ClientOptions{Dsn: ravenDSN, Environment: env.Env()})
+	err := sentry.Init(sentry.ClientOptions{Dsn: ravenDSN, Environment: env.Env()})
+	if err != nil {
+		log.Err(err).Msg("sentry init failed")
+	}
 
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
 		defer func() {

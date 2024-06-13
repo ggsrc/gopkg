@@ -6,6 +6,8 @@ const (
 	CTX_KEY_JWT_TOKEN      = "jwt_token"
 	CTX_KEY_ACCESS_TOKEN   = "access_token"
 	CTX_KEY_GALXE_ID       = "galxe_id"
+	CTX_KEY_ACCOUNT_ID     = "account_id"
+	CTX_KEY_ACCOUNT_TYPE   = "account_type"
 	CTX_KEY_ORIGIN         = "origin"
 )
 

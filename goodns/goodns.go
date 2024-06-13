@@ -65,8 +65,6 @@ func queryA(ctx context.Context, domain string, dnsServer *string, useTCP bool) 
 	for _, msg := range resp.Answer {
 		if a, ok := msg.(*dns.A); ok {
 			ips = append(ips, a.A)
-		} else {
-			// do nothing when it's not A record, since CNAME RR will be included as well.
 		}
 	}
 	return ips, nil
