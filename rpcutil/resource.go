@@ -50,18 +50,24 @@ func (r *Resource) Start(ctx context.Context) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		log.Warn().Msg("GRPC server start")
-		grpcErrCh <- r.GrpcServer.Start()
+		if r.GrpcServer != nil {
+			log.Warn().Msg("GRPC server start")
+			grpcErrCh <- r.GrpcServer.Start()
+		}
 	}()
 
 	go func() {
-		log.Warn().Msg("HealthCheck server start")
-		healthErrCh <- r.HealthChecker.Start()
+		if r.HealthChecker != nil {
+			log.Warn().Msg("HealthCheck server start")
+			healthErrCh <- r.HealthChecker.Start()
+		}
 	}()
 
 	go func() {
-		log.Warn().Msg("Metric server start")
-		metricErrCh <- r.Metricer.Start()
+		if r.Metricer != nil {
+			log.Warn().Msg("Metric server start")
+			metricErrCh <- r.Metricer.Start()
+		}
 	}()
 
 	// Monitor system signal like SIGINT and SIGTERM
