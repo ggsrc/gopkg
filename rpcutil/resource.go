@@ -39,6 +39,7 @@ type Resource struct {
 	Metricer      *metric.Server
 }
 
+// Start will hang the main goroutine until a signal is received or an error occurs
 func (r *Resource) Start(ctx context.Context) {
 	var wg sync.WaitGroup
 
