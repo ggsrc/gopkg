@@ -7,10 +7,10 @@ import (
 	"runtime/debug"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 
 	"github.com/ggsrc/gopkg/env"
+	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
 const RecoverLogKey = "khturNQNRuAJ"
