@@ -2,12 +2,14 @@ package log_test
 
 import (
 	"context"
-	otelzerolog "github.com/ggsrc/gopkg/zerolog"
-	"github.com/ggsrc/gopkg/zerolog/log"
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/uptrace/uptrace-go/uptrace"
 	"go.opentelemetry.io/otel/trace"
-	"testing"
+
+	otelzerolog "github.com/ggsrc/gopkg/zerolog"
+	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
 func TestLog(t *testing.T) {
