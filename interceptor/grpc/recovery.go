@@ -3,9 +3,6 @@ package grpcinterceptor
 import (
 	"context"
 	"fmt"
-	"runtime"
-	"runtime/debug"
-
 	"github.com/getsentry/sentry-go"
 	"google.golang.org/grpc"
 
@@ -25,14 +22,14 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 			if r := recover(); r != nil {
 				log.Ctx(ctx).Error().Stack().
 					Err(fmt.Errorf("%v", r)).
-					Msgf("%s panic", info.FullMethod)
+					Msgf("%s grpc server panic", info.FullMethod)
 				err = fmt.Errorf("server Internal Error")
 			}
 		}()
 
 		resp, err = handler(ctx, req)
 		if err != nil {
-			log.Err(err).Err(err).Msg("server error")
+			log.Ctx(ctx).Error().Err(err).Msg("grpc server error")
 		}
 		return resp, err
 	}
@@ -47,22 +44,17 @@ func SentryUnaryClientInterceptor(ravenDSN string) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				eID := sentry.CaptureException(fmt.Errorf("%v", r))
-
-				log.Ctx(ctx).Info().Msgf("Recovered from panic: %v", r)
-				log.Ctx(ctx).Info().Msg("Stack trace of the panic:")
-				log.Ctx(ctx).Info().Msg(string(debug.Stack()))
-
-				buf := make([]byte, 64<<10)
-				buf = buf[:runtime.Stack(buf, false)]
-				e := fmt.Errorf("%v %s", r, buf)
-				log.Ctx(ctx).Err(e).Msgf("Panic captured by sentry: %s, %v", RecoverLogKey, eID)
-
+				log.Ctx(ctx).Error().Stack().
+					Err(fmt.Errorf("%v", r)).
+					Msgf("%s grpc client panic", method)
 				err = fmt.Errorf("server Internal Error")
 			}
 		}()
 
 		err = invoker(ctx, method, req, reply, cc, opts...)
+		if err != nil {
+			log.Ctx(ctx).Error().Err(err).Msg("grpc client error")
+		}
 		return err
 	}
 }
