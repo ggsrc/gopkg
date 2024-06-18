@@ -9,6 +9,7 @@ import (
 	sdklogs "github.com/agoda-com/opentelemetry-logs-go/sdk/logs"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/rs/zerolog/pkgerrors"
 
 	"github.com/ggsrc/gopkg/env"
 )
@@ -35,5 +36,6 @@ func InitDefaultLogger() {
 	hook := otelzerolog.NewHook(loggerProvider)
 	loggerVal := log.With().Caller().Logger()
 	loggerVal = loggerVal.Hook(hook)
+	zerolog.ErrorStackMarshaler = pkgerrors.MarshalStack
 	zerolog.DefaultContextLogger = &loggerVal
 }

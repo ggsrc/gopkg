@@ -3,14 +3,14 @@ package grpcinterceptor
 import (
 	"context"
 	"fmt"
-	"runtime"
 	"runtime/debug"
+	"strings"
 
 	"github.com/getsentry/sentry-go"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 
 	"github.com/ggsrc/gopkg/env"
+	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
 const RecoverLogKey = "khturNQNRuAJ"
@@ -23,22 +23,18 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				eID := sentry.CaptureException(fmt.Errorf("%v", r))
-
-				log.Info().Msgf("Recovered from panic: %v", r)
-				log.Info().Msg("Stack trace of the panic:")
-				log.Info().Msg(string(debug.Stack()))
-
-				buf := make([]byte, 64<<10)
-				buf = buf[:runtime.Stack(buf, false)]
-				e := fmt.Errorf("%v %s", r, buf)
-				log.Err(e).Msgf("Panic captured by sentry: %s, %v", RecoverLogKey, eID)
-
+				log.Ctx(ctx).Error().
+					Str("panic.stack", string(debug.Stack())).
+					Err(fmt.Errorf("[panic] %v", r)).
+					Msgf("%s grpc server panic", strings.Trim(info.FullMethod, "/"))
 				err = fmt.Errorf("server Internal Error")
 			}
 		}()
 
 		resp, err = handler(ctx, req)
+		if err != nil {
+			log.Ctx(ctx).Error().Err(err).Msg("grpc server error")
+		}
 		return resp, err
 	}
 }
@@ -52,22 +48,18 @@ func SentryUnaryClientInterceptor(ravenDSN string) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) (err error) {
 		defer func() {
 			if r := recover(); r != nil {
-				eID := sentry.CaptureException(fmt.Errorf("%v", r))
-
-				log.Info().Msgf("Recovered from panic: %v", r)
-				log.Info().Msg("Stack trace of the panic:")
-				log.Info().Msg(string(debug.Stack()))
-
-				buf := make([]byte, 64<<10)
-				buf = buf[:runtime.Stack(buf, false)]
-				e := fmt.Errorf("%v %s", r, buf)
-				log.Err(e).Msgf("Panic captured by sentry: %s, %v", RecoverLogKey, eID)
-
+				log.Ctx(ctx).Error().
+					Str("panic.stack", string(debug.Stack())).
+					Err(fmt.Errorf("[panic] %v", r)).
+					Msgf("%s grpc client panic", strings.Trim(method, "/"))
 				err = fmt.Errorf("server Internal Error")
 			}
 		}()
 
 		err = invoker(ctx, method, req, reply, cc, opts...)
+		if err != nil {
+			log.Ctx(ctx).Error().Err(err).Msg("grpc client error")
+		}
 		return err
 	}
 }
