@@ -22,7 +22,7 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Ctx(ctx).Error().Stack().
-					Err(fmt.Errorf("%v", r)).
+					Err(fmt.Errorf("[panic] %v", r)).
 					Msgf("%s grpc server panic", info.FullMethod)
 				err = fmt.Errorf("server Internal Error")
 			}
@@ -46,7 +46,7 @@ func SentryUnaryClientInterceptor(ravenDSN string) grpc.UnaryClientInterceptor {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Ctx(ctx).Error().Stack().
-					Err(fmt.Errorf("%v", r)).
+					Err(fmt.Errorf("[panic] %v", r)).
 					Msgf("%s grpc client panic", method)
 				err = fmt.Errorf("server Internal Error")
 			}
