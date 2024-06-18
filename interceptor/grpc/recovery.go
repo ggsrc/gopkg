@@ -3,6 +3,7 @@ package grpcinterceptor
 import (
 	"context"
 	"fmt"
+
 	"github.com/getsentry/sentry-go"
 	"google.golang.org/grpc"
 
