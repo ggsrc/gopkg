@@ -128,7 +128,7 @@ func (r *Resource) ShutDown(ctx context.Context) {
 }
 
 func (r *Resource) OK(ctx context.Context) error {
-	checker := []health.Checkable{}
+	var checker []health.Checkable
 	if r.DCache != nil {
 		checker = append(checker, r.DCache.Ping)
 	}
