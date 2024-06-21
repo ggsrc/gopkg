@@ -43,6 +43,8 @@ type Resource struct {
 
 // Start will hang the main goroutine until a signal is received or an error occurs
 func (r *Resource) Start(ctx context.Context) {
+	r.CronScheduler.Start()
+
 	var wg sync.WaitGroup
 
 	grpcErrCh, healthErrCh, metricErrCh :=
@@ -108,6 +110,15 @@ func (r *Resource) ShutDown(ctx context.Context) {
 			}
 		}
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if r.CronScheduler != nil {
+			if err := r.CronScheduler.Shutdown(); err != nil {
+				log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown cronjob")
+			}
+		}
+	}()
 
 	wg.Wait()
 	// close db connection pool
@@ -124,6 +135,11 @@ func (r *Resource) ShutDown(ctx context.Context) {
 			log.Ctx(ctx).Error().Err(err).Msg("failed to close redis connection")
 		}
 	}
+	// close health check
+	if r.HealthChecker != nil {
+		r.HealthChecker.Stop()
+	}
+
 	if err := uptrace.Shutdown(ctx); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown uptrace")
 	}
