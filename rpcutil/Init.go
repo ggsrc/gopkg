@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/go-co-op/gocron/v2"
 	"google.golang.org/grpc"
 
 	gg_grpc "github.com/ggsrc/gopkg/grpc"
@@ -34,6 +35,9 @@ type RpcInitHelperOptions struct {
 	InitGrpcServer bool
 	GrpcServerConf *gg_grpc.ServerConfig
 	GrpcServerOpt  []grpc.ServerOption
+
+	InitCronJob bool
+	CronJobOpt  []gocron.SchedulerOption
 }
 
 func WithAppName(appName string) RpcInitHelperOption {
@@ -65,6 +69,13 @@ func WithGrpcServerInit(conf *gg_grpc.ServerConfig, opt ...grpc.ServerOption) Rp
 		o.InitGrpcServer = true
 		o.GrpcServerConf = conf
 		o.GrpcServerOpt = opt
+	}
+}
+
+func WithCronJobInit(opt ...gocron.SchedulerOption) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.InitCronJob = true
+		o.CronJobOpt = opt
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
@@ -33,7 +34,8 @@ type Resource struct {
 	RedisClient redis.UniversalClient
 	DCache      *dcache.DCache
 
-	GrpcServer *grpc.Server
+	GrpcServer    *grpc.Server
+	CronScheduler gocron.Scheduler
 
 	HealthChecker *health.Server
 	Metricer      *metric.Server
@@ -41,6 +43,8 @@ type Resource struct {
 
 // Start will hang the main goroutine until a signal is received or an error occurs
 func (r *Resource) Start(ctx context.Context) {
+	r.CronScheduler.Start()
+
 	var wg sync.WaitGroup
 
 	grpcErrCh, healthErrCh, metricErrCh :=
@@ -106,6 +110,15 @@ func (r *Resource) ShutDown(ctx context.Context) {
 			}
 		}
 	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if r.CronScheduler != nil {
+			if err := r.CronScheduler.Shutdown(); err != nil {
+				log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown cronjob")
+			}
+		}
+	}()
 
 	wg.Wait()
 	// close db connection pool
@@ -122,6 +135,11 @@ func (r *Resource) ShutDown(ctx context.Context) {
 			log.Ctx(ctx).Error().Err(err).Msg("failed to close redis connection")
 		}
 	}
+	// close health check
+	if r.HealthChecker != nil {
+		r.HealthChecker.Stop()
+	}
+
 	if err := uptrace.Shutdown(ctx); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown uptrace")
 	}
@@ -175,6 +193,14 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	// init grpc
 	if o.InitGrpcServer {
 		myResource.GrpcServer = grpc.NewServer(o.AppName, o.GrpcServerConf, o.GrpcServerOpt...)
+	}
+	// init cronjob
+	if o.InitCronJob {
+		scheduler, err := gocron.NewScheduler(o.CronJobOpt...)
+		if err != nil {
+			return nil, err
+		}
+		myResource.CronScheduler = scheduler
 	}
 	// init health check
 	if o.InitHealthCheck {
