@@ -22,6 +22,7 @@
 <hr>
 
 ##  Overview
+[![codecov](https://codecov.io/gh/ggsrc/gopkg/branch/main/graph/badge.svg?token=LUJBQBEET1)](https://codecov.io/gh/ggsrc/gopkg)
 
 
 ---

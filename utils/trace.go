@@ -26,3 +26,8 @@ func StartTrace(ctx context.Context, spanName string, opts ...trace.SpanStartOpt
 	ctx, span := tracer.Start(ctx, spanName, opts...)
 	return ctx, span
 }
+
+func BackgroundCtx(name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	ctx := context.Background()
+	return StartTrace(ctx, name)
+}
