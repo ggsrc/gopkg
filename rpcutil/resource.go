@@ -178,7 +178,9 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	}
 	// init health check
 	if o.InitHealthCheck {
-		myResource.HealthChecker = health.New(nil, myResource)
+		allCheck := []health.HealthCheckable{myResource}
+		allCheck = append(allCheck, o.Checkable...)
+		myResource.HealthChecker = health.InitHealthCheck(allCheck...)
 	}
 	// init metric
 	if o.InitMetric {
