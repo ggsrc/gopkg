@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-co-op/gocron/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
@@ -33,7 +34,8 @@ type Resource struct {
 	RedisClient redis.UniversalClient
 	DCache      *dcache.DCache
 
-	GrpcServer *grpc.Server
+	GrpcServer    *grpc.Server
+	CronScheduler gocron.Scheduler
 
 	HealthChecker *health.Server
 	Metricer      *metric.Server
@@ -175,6 +177,14 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	// init grpc
 	if o.InitGrpcServer {
 		myResource.GrpcServer = grpc.NewServer(o.AppName, o.GrpcServerConf, o.GrpcServerOpt...)
+	}
+	// init cronjob
+	if o.InitCronJob {
+		scheduler, err := gocron.NewScheduler(o.CronJobOpt...)
+		if err != nil {
+			return nil, err
+		}
+		myResource.CronScheduler = scheduler
 	}
 	// init health check
 	if o.InitHealthCheck {
