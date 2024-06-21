@@ -8,7 +8,9 @@ replace (
 	github.com/ggsrc/gopkg/env => ../env
 	github.com/ggsrc/gopkg/goodns => ../goodns
 	github.com/ggsrc/gopkg/grpc => ../grpc
+	github.com/ggsrc/gopkg/health => ../health
 	github.com/ggsrc/gopkg/interceptor => ../interceptor
+	github.com/ggsrc/gopkg/metric => ../metric
 	github.com/ggsrc/gopkg/zerolog => ../zerolog
 )
 
