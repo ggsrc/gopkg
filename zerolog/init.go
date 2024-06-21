@@ -13,6 +13,9 @@ func InitLogger(debug bool) {
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	}
 	// zerolog.DefaultContextLogger = &log.Logger
+	if env.IsUnitTest() {
+		return
+	}
 	uptrace.ConfigureOpentelemetry(
 		uptrace.WithDeploymentEnvironment(env.Env()),
 		uptrace.WithServiceVersion(env.ServiceVersion()+"-"+env.BuildTime()),
