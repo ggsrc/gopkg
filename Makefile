@@ -21,7 +21,8 @@ build:
 
 
 test:
-	@go test github.com/ggsrc/gopkg/...
+	@export ENV=test && \
+		go test github.com/ggsrc/gopkg/...
 
 codecov:
 	export ENV=test && \
