@@ -7,6 +7,7 @@ import (
 	"google.golang.org/grpc"
 
 	gg_grpc "github.com/ggsrc/gopkg/grpc"
+	"github.com/ggsrc/gopkg/health"
 )
 
 // Defaults for RpcInitHelperOptions.
@@ -27,6 +28,7 @@ type RpcInitHelperOptions struct {
 	InitWpgx        bool
 	InitCache       bool
 	InitHealthCheck bool
+	Checkable       []health.HealthCheckable
 	InitMetric      bool
 
 	InitGrpcServer bool
@@ -66,9 +68,10 @@ func WithGrpcServerInit(conf *gg_grpc.ServerConfig, opt ...grpc.ServerOption) Rp
 	}
 }
 
-func WithHealthCheckInit() RpcInitHelperOption {
+func WithHealthCheckInit(checkable ...health.HealthCheckable) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitHealthCheck = true
+		o.Checkable = checkable
 	}
 }
 

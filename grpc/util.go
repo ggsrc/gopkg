@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	// credID symbol regexp to find C_123
+	// CReg credID symbol regexp to find C_123
 	CReg *regexp.Regexp = regexp.MustCompile(`C_\d+`)
-	// number regexp to find number inside credential id
+	// NReg number regexp to find number inside credential id
 	NReg *regexp.Regexp = regexp.MustCompile(`\d+`)
 )
 
