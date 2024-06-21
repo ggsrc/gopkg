@@ -1,9 +1,10 @@
 package zerolog
 
 import (
-	"github.com/ggsrc/gopkg/env"
 	"github.com/rs/zerolog"
 	"github.com/uptrace/uptrace-go/uptrace"
+
+	"github.com/ggsrc/gopkg/env"
 )
 
 func InitLogger(debug bool) {
