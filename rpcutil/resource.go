@@ -43,7 +43,9 @@ type Resource struct {
 
 // Start will hang the main goroutine until a signal is received or an error occurs
 func (r *Resource) Start(ctx context.Context) {
-	r.CronScheduler.Start()
+	if r.CronScheduler != nil {
+		r.CronScheduler.Start()
+	}
 
 	var wg sync.WaitGroup
 
