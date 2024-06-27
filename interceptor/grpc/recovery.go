@@ -2,14 +2,18 @@ package grpcinterceptor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"runtime/debug"
 	"strings"
 
 	"github.com/getsentry/sentry-go"
+	"github.com/jinzhu/copier"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/status"
 
 	"github.com/ggsrc/gopkg/env"
+	"github.com/ggsrc/gopkg/interceptor/grpc/errors"
 	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
@@ -33,7 +37,20 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 
 		resp, err = handler(ctx, req)
 		if err != nil {
-			log.Ctx(ctx).Error().Err(err).Msg("grpc server error")
+			var subErrs []*errors.ErrorInfo
+			grpcStatus, ok := status.FromError(err)
+			if ok {
+				for _, errorDetail := range grpcStatus.Details() {
+					var subErr errors.ErrorInfo
+					copyErr := copier.Copy(&subErr, errorDetail)
+					if copyErr != nil {
+						continue
+					}
+					subErrs = append(subErrs, &subErr)
+				}
+			}
+			subErrStr, _ := json.Marshal(subErrs)
+			log.Ctx(ctx).Error().Str("sub_errors", string(subErrStr)).Err(err).Msg("grpc server error")
 		}
 		return resp, err
 	}

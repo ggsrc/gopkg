@@ -10,7 +10,7 @@ import (
 	"github.com/ggsrc/gopkg/env"
 )
 
-const name = "github.com/NFTGalaxy/app"
+const name = "github.com/ggsrc/app"
 
 var (
 	tracer = otel.Tracer(name)
