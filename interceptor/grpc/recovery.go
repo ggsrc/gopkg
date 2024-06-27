@@ -51,9 +51,11 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 					}
 					subErrs = append(subErrs, &subErr)
 				}
+				subErrStr, _ := json.Marshal(subErrs)
+				log.Ctx(ctx).Error().Str("sub_errors", string(subErrStr)).Err(err).Msg("grpc server error")
+			} else {
+				log.Ctx(ctx).Error().Err(err).Msg("grpc server error")
 			}
-			subErrStr, _ := json.Marshal(subErrs)
-			log.Ctx(ctx).Error().Str("sub_errors", string(subErrStr)).Err(err).Msg("grpc server error")
 		}
 		return resp, err
 	}
