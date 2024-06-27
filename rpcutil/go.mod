@@ -15,13 +15,13 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-20240604065326-0b574afd0001
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240604065326-0b574afd0001
-	github.com/ggsrc/gopkg/env v0.0.0-20240604065326-0b574afd0001
-	github.com/ggsrc/gopkg/grpc v0.0.0-20240604065326-0b574afd0001
-	github.com/ggsrc/gopkg/health v0.0.0-20240621095053-a835d47a7220
-	github.com/ggsrc/gopkg/metric v0.0.0-20240621095053-a835d47a7220
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240613072755-818fc53a7c82
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/env v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/grpc v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/health v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/metric v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240627103648-9470085e7ddf
 	github.com/go-co-op/gocron/v2 v2.6.0
 	github.com/redis/go-redis/v9 v9.5.2
 	github.com/stumble/dcache v0.2.0
@@ -40,7 +40,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240604065326-0b574afd0001 // indirect
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240604065326-0b574afd0001 // indirect
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240627103648-9470085e7ddf // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -52,6 +52,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
 	github.com/jackc/pgx/v5 v5.4.3 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.4.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
@@ -85,15 +86,15 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.27.0 // indirect
 	go.opentelemetry.io/otel/trace v1.27.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.2.0 // indirect
-	golang.org/x/crypto v0.23.0 // indirect
+	golang.org/x/crypto v0.24.0 // indirect
 	golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f // indirect
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/net v0.25.0 // indirect
+	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
-	golang.org/x/sys v0.20.0 // indirect
-	golang.org/x/text v0.15.0 // indirect
-	golang.org/x/tools v0.20.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240521202816-d264139d666e // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240521202816-d264139d666e // indirect
-	google.golang.org/protobuf v1.34.1 // indirect
+	golang.org/x/sys v0.21.0 // indirect
+	golang.org/x/text v0.16.0 // indirect
+	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240617180043-68d350f18fd4 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240617180043-68d350f18fd4 // indirect
+	google.golang.org/protobuf v1.34.2 // indirect
 )
