@@ -41,6 +41,9 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 			grpcStatus, ok := status.FromError(err)
 			if ok {
 				for _, errorDetail := range grpcStatus.Details() {
+					if errorDetail == nil {
+						continue
+					}
 					var subErr errors.ErrorInfo
 					copyErr := copier.Copy(&subErr, errorDetail)
 					if copyErr != nil {
@@ -48,9 +51,11 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 					}
 					subErrs = append(subErrs, &subErr)
 				}
+				subErrStr, _ := json.Marshal(subErrs)
+				log.Ctx(ctx).Error().Str("sub_errors", string(subErrStr)).Err(err).Msg("grpc server error")
+			} else {
+				log.Ctx(ctx).Error().Err(err).Msg("grpc server error")
 			}
-			subErrStr, _ := json.Marshal(subErrs)
-			log.Ctx(ctx).Error().Str("sub_errors", string(subErrStr)).Err(err).Msg("grpc server error")
 		}
 		return resp, err
 	}
