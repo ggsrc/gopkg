@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package errpb;
+
+option go_package = "github.com/ggsrc/galaxy-errors/proto;errors";
+
+message ErrorInfo {
+  // Domain is for grouping reasons
+  string domain = 1;
+  // Error is optional, if passed in, it will append to error message
+  string error = 2;
+  // Reason is the key to get error message template
+  string reason = 3;
+  // Args is the replacer for error message template
+  repeated string args = 4;
+}
