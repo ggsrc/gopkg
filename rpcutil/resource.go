@@ -103,6 +103,9 @@ func (r *Resource) Start(ctx context.Context) {
 	case err := <-grpcErrCh:
 		log.Error().Err(err).Msg("grpc server error; shutting down")
 		r.ShutDown(ctx)
+	case err := <-profilingErrCh:
+		log.Error().Err(err).Msg("profiling server error; shutting down")
+		r.ShutDown(ctx)
 	}
 }
 
