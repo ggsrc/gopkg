@@ -20,6 +20,7 @@ import (
 	"github.com/ggsrc/gopkg/grpc"
 	"github.com/ggsrc/gopkg/health"
 	"github.com/ggsrc/gopkg/metric"
+	"github.com/ggsrc/gopkg/profiling"
 	"github.com/ggsrc/gopkg/zerolog"
 	"github.com/ggsrc/gopkg/zerolog/log"
 )
@@ -39,6 +40,7 @@ type Resource struct {
 
 	HealthChecker *health.Server
 	Metricer      *metric.Server
+	Profiling     *profiling.Server
 }
 
 // Start will hang the main goroutine until a signal is received or an error occurs
@@ -49,7 +51,8 @@ func (r *Resource) Start(ctx context.Context) {
 
 	var wg sync.WaitGroup
 
-	grpcErrCh, healthErrCh, metricErrCh :=
+	grpcErrCh, healthErrCh, metricErrCh, profilingErrCh :=
+		make(chan error, 1),
 		make(chan error, 1),
 		make(chan error, 1),
 		make(chan error, 1)
@@ -74,6 +77,13 @@ func (r *Resource) Start(ctx context.Context) {
 		if r.Metricer != nil {
 			log.Warn().Msg("Metric server start")
 			metricErrCh <- r.Metricer.Start()
+		}
+	}()
+
+	go func() {
+		if r.Profiling != nil {
+			log.Warn().Msg("Profiling server start")
+			profilingErrCh <- r.Profiling.Start()
 		}
 	}()
 
@@ -213,6 +223,10 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	// init metric
 	if o.InitMetric {
 		myResource.Metricer = metric.New(nil)
+	}
+	// init profiling
+	if o.InitProfiling {
+		myResource.Profiling = profiling.InitProfiler(o.ProfilingConf)
 	}
 	return myResource, nil
 }
