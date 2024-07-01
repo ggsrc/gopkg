@@ -8,8 +8,8 @@ replace github.com/ggsrc/gopkg/zerolog => ../zerolog
 
 require (
 	github.com/getsentry/sentry-go v0.28.0
-	github.com/ggsrc/gopkg/env v0.0.0-20240627103648-9470085e7ddf
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240701121102-34284860bec7
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jinzhu/copier v0.4.0
 	google.golang.org/grpc v1.64.0

@@ -26,6 +26,7 @@ github.com/getsentry/sentry-go v0.28.0 h1:7Rqx9M3ythTKy2J6uZLHmc8Sz9OGgIlseuO1iB
 github.com/getsentry/sentry-go v0.28.0/go.mod h1:1fQZ+7l7eeJ3wYi82q5Hg8GqAPgefRq+FP/QhafYVgg=
 github.com/ggsrc/gopkg/zerolog v0.0.0-20240627103648-9470085e7ddf h1:ABG7r0MnvsvmX3YP1x9FwkEz263DKweO5hlW4kJRPkE=
 github.com/ggsrc/gopkg/zerolog v0.0.0-20240627103648-9470085e7ddf/go.mod h1:ahtOBmUCPC2c4BSGijrb1YbyB/cpukVAaM5WYfwRgBA=
+github.com/ggsrc/gopkg/zerolog v0.0.0-20240701121102-34284860bec7/go.mod h1:zqeirm7NzAJoOGR9IKYnoq3sygo/5c1+VfLL4NPJFLw=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
 github.com/go-errors/errors v1.4.2/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-kit/log v0.1.0/go.mod h1:zbhenjAZHb184qTLMA9ZjW7ThYL0H2mk7Q6pNt4vbaY=
