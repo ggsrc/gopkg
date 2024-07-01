@@ -1,6 +1,6 @@
 module github.com/ggsrc/gopkg/rpcutil
 
-go 1.22.3
+go 1.22
 
 replace (
 	github.com/ggsrc/gopkg/database/cache => ../database/cache
@@ -15,6 +15,7 @@ replace (
 )
 
 require (
+	dario.cat/mergo v1.0.0
 	github.com/ggsrc/gopkg/database/cache v0.0.0-20240627103648-9470085e7ddf
 	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240627103648-9470085e7ddf
 	github.com/ggsrc/gopkg/env v0.0.0-20240627103648-9470085e7ddf
@@ -23,6 +24,8 @@ require (
 	github.com/ggsrc/gopkg/metric v0.0.0-20240627103648-9470085e7ddf
 	github.com/ggsrc/gopkg/zerolog v0.0.0-20240627103648-9470085e7ddf
 	github.com/go-co-op/gocron/v2 v2.6.0
+	github.com/grafana/pyroscope-go v1.1.1
+	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/redis/go-redis/v9 v9.5.2
 	github.com/stumble/dcache v0.2.0
 	github.com/stumble/wpgx v0.2.2
@@ -44,6 +47,7 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.6 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
@@ -54,7 +58,6 @@ require (
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.4.0 // indirect
-	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

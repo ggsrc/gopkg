@@ -9,6 +9,7 @@ import (
 
 	gg_grpc "github.com/ggsrc/gopkg/grpc"
 	"github.com/ggsrc/gopkg/health"
+	"github.com/ggsrc/gopkg/profiling"
 )
 
 // Defaults for RpcInitHelperOptions.
@@ -31,6 +32,9 @@ type RpcInitHelperOptions struct {
 	InitHealthCheck bool
 	Checkable       []health.HealthCheckable
 	InitMetric      bool
+
+	InitProfiling bool
+	ProfilingConf *profiling.Config
 
 	InitGrpcServer bool
 	GrpcServerConf *gg_grpc.ServerConfig
@@ -89,6 +93,13 @@ func WithHealthCheckInit(checkable ...health.HealthCheckable) RpcInitHelperOptio
 func WithMetricInit() RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitMetric = true
+	}
+}
+
+func WithProfilingInit(conf *profiling.Config) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.InitProfiling = true
+		o.ProfilingConf = conf
 	}
 }
 

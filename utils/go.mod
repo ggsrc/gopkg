@@ -1,6 +1,6 @@
 module github.com/ggsrc/gopkg/utils
 
-go 1.22.3
+go 1.22
 
 require (
 	github.com/ggsrc/gopkg/env v0.0.0-20240604073103-9391247461c2

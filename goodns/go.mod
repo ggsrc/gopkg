@@ -1,6 +1,6 @@
 module github.com/ggsrc/gopkg/goodns
 
-go 1.22.3
+go 1.22
 
 require github.com/miekg/dns v1.1.59
 
