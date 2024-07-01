@@ -1,6 +1,6 @@
 module github.com/ggsrc/gopkg/grpc
 
-go 1.22.3
+go 1.22
 
 replace (
 	github.com/ggsrc/gopkg/env => ../env
