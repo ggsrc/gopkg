@@ -173,18 +173,14 @@ retry:
 
 // Invalidate implements Cache interface
 func (c *Client) Invalidate(ctx context.Context, keys ...string) error {
-	pipe := c.primaryConn.Pipeline()
-	var errs []error
+	var err error
 	for _, key := range keys {
-		errs = append(errs, pipe.Del(ctx, lock(key)).Err())
-		errs = append(errs, pipe.Del(ctx, store(key)).Err())
+		err = c.invalidKey(ctx, lock(key), store(key))
+		if err != nil {
+			return err
+		}
 	}
-	_, err := pipe.Exec(ctx)
-	if err != nil {
-		errs = append(errs, err)
-	}
-	// if errs is nil, it will return nil
-	return errors.Join(errs...)
+	return nil
 }
 
 func (c *Client) invalidKey(ctx context.Context, keys ...string) error {
