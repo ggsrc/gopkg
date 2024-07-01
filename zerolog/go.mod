@@ -7,7 +7,7 @@ replace github.com/ggsrc/gopkg/env => ../env
 require (
 	github.com/agoda-com/opentelemetry-go/otelzerolog v0.0.1
 	github.com/agoda-com/opentelemetry-logs-go v0.5.0
-	github.com/ggsrc/gopkg/env v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7
 	github.com/rs/zerolog v1.33.0
 	github.com/stretchr/testify v1.9.0
 	github.com/uptrace/uptrace-go v1.27.1

@@ -1,6 +1,6 @@
 module github.com/ggsrc/gopkg/grpc
 
-go 1.22
+go 1.22.3
 
 replace (
 	github.com/ggsrc/gopkg/env => ../env
@@ -8,7 +8,7 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240627103648-9470085e7ddf
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240701121102-34284860bec7
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
@@ -22,8 +22,8 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
-	github.com/ggsrc/gopkg/env v0.0.0-20240627103648-9470085e7ddf // indirect
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240627103648-9470085e7ddf // indirect
+	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7 // indirect
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240701121102-34284860bec7 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect

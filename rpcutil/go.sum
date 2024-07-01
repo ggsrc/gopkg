@@ -37,6 +37,8 @@ github.com/envoyproxy/go-control-plane v0.9.4/go.mod h1:6rpuAdCZL397s3pYoYcLgu1m
 github.com/envoyproxy/protoc-gen-validate v0.1.0/go.mod h1:iSmxcyjqTsJpI2R4NaDN7+kN2VEUnK/pcBlmesArF7c=
 github.com/getsentry/sentry-go v0.28.0 h1:7Rqx9M3ythTKy2J6uZLHmc8Sz9OGgIlseuO1iBX/s0M=
 github.com/getsentry/sentry-go v0.28.0/go.mod h1:1fQZ+7l7eeJ3wYi82q5Hg8GqAPgefRq+FP/QhafYVgg=
+github.com/ggsrc/gopkg/profiling v0.0.0-20240701121102-34284860bec7 h1:N5RN7LHfyXZ8h59tk2N22BdqjM8mmdnBhmU6mtb4JRg=
+github.com/ggsrc/gopkg/profiling v0.0.0-20240701121102-34284860bec7/go.mod h1:ByIHmG/AeQsd3ctaU07u9bkjaEEtKwMyhRCWHtD633g=
 github.com/go-co-op/gocron/v2 v2.6.0 h1:aSka6+B8i/pnFGlJvdZmoK8Tx/kbe7EWFN3gbNmYBGA=
 github.com/go-co-op/gocron/v2 v2.6.0/go.mod h1:ckPQw96ZuZLRUGu88vVpd9a6d9HakI14KWahFZtGvNw=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
