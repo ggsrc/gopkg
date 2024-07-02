@@ -83,7 +83,9 @@ func (r *Resource) Start(ctx context.Context) {
 	go func() {
 		if r.Profiling != nil {
 			log.Warn().Msg("Profiling server start")
-			profilingErrCh <- r.Profiling.Start()
+			if err := r.Profiling.Start(); err != nil {
+				profilingErrCh <- err
+			}
 		}
 	}()
 
