@@ -33,9 +33,8 @@ type RpcInitHelperOptions struct {
 	Checkable       []health.HealthCheckable
 	InitMetric      bool
 
-	CustomResourceOps []CustomResource
-	InitProfiling     bool
-	ProfilingConf     *profiling.Config
+	InitProfiling bool
+	ProfilingConf *profiling.Config
 
 	InitGrpcServer bool
 	GrpcServerConf *gg_grpc.ServerConfig
@@ -43,6 +42,8 @@ type RpcInitHelperOptions struct {
 
 	InitCronJob bool
 	CronJobOpt  []gocron.SchedulerOption
+
+	CustomResourceOps []CustomResource
 }
 
 func WithAppName(appName string) RpcInitHelperOption {
