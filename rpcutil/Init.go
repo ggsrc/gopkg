@@ -42,6 +42,8 @@ type RpcInitHelperOptions struct {
 
 	InitCronJob bool
 	CronJobOpt  []gocron.SchedulerOption
+
+	CustomResourceOps []CustomResource
 }
 
 func WithAppName(appName string) RpcInitHelperOption {
@@ -100,6 +102,12 @@ func WithProfilingInit(conf *profiling.Config) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitProfiling = true
 		o.ProfilingConf = conf
+	}
+}
+
+func WithCustomResourceInit(customResource ...CustomResource) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.CustomResourceOps = customResource
 	}
 }
 

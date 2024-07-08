@@ -41,12 +41,20 @@ type Resource struct {
 	HealthChecker *health.Server
 	Metricer      *metric.Server
 	Profiling     *profiling.Server
+
+	CustomResources []CustomResource
 }
 
 // Start will hang the main goroutine until a signal is received or an error occurs
 func (r *Resource) Start(ctx context.Context) {
 	if r.CronScheduler != nil {
 		r.CronScheduler.Start()
+	}
+
+	for _, res := range r.CustomResources {
+		if err := res.Start(ctx); err != nil {
+			log.Ctx(ctx).Error().Err(err).Msgf("failed to start custom resource %v", res)
+		}
 	}
 
 	var wg sync.WaitGroup
@@ -138,6 +146,11 @@ func (r *Resource) ShutDown(ctx context.Context) {
 	}()
 
 	wg.Wait()
+	for _, res := range r.CustomResources {
+		if err := res.Close(ctx); err != nil {
+			log.Ctx(ctx).Error().Err(err).Msgf("failed to close custom resource %v", res)
+		}
+	}
 	// close db connection pool
 	if r.WPGXPool != nil {
 		r.WPGXPool.Close()
@@ -232,6 +245,9 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	// init profiling
 	if o.InitProfiling {
 		myResource.Profiling = profiling.InitProfiler(o.ProfilingConf)
+	}
+	if o.CustomResourceOps != nil {
+		myResource.CustomResources = o.CustomResourceOps
 	}
 	return myResource, nil
 }
