@@ -33,8 +33,9 @@ type RpcInitHelperOptions struct {
 	Checkable       []health.HealthCheckable
 	InitMetric      bool
 
-	InitProfiling bool
-	ProfilingConf *profiling.Config
+	CustomResourceOps []CustomResource
+	InitProfiling     bool
+	ProfilingConf     *profiling.Config
 
 	InitGrpcServer bool
 	GrpcServerConf *gg_grpc.ServerConfig
@@ -100,6 +101,12 @@ func WithProfilingInit(conf *profiling.Config) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitProfiling = true
 		o.ProfilingConf = conf
+	}
+}
+
+func WithCustomResourceInit(customResource ...CustomResource) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.CustomResourceOps = customResource
 	}
 }
 
