@@ -2,16 +2,15 @@ package grpc
 
 import (
 	"context"
-
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
+	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/kelseyhightower/envconfig"
-	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
+	"github.com/kelseyhightower/envconfig"
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
 type ClientConfig struct {
