@@ -2,16 +2,15 @@ package grpc
 
 import (
 	"context"
-
-	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
+	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
-	"github.com/kelseyhightower/envconfig"
-	"github.com/rs/zerolog"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
+	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
+	"github.com/kelseyhightower/envconfig"
+	"github.com/rs/zerolog"
+	"google.golang.org/grpc"
 )
 
 type ClientConfig struct {
@@ -37,9 +36,7 @@ func NewClient(serverName, clientName string, conf *ClientConfig) *Client {
 	}
 }
 
-func (c *Client) Dial(ctx context.Context, addr string, opt ...grpc.DialOption) (conn *grpc.ClientConn, err error) {
-	opt = append(opt, grpc.WithTransportCredentials(insecure.NewCredentials()))
-
+func (c *Client) Dial(ctx context.Context, addr string, opts ...grpc.DialOption) (conn *grpc.ClientConn, err error) {
 	logger := zerolog.DefaultContextLogger
 	if logger == nil {
 		logger = zerolog.Ctx(ctx)
@@ -51,7 +48,7 @@ func (c *Client) Dial(ctx context.Context, addr string, opt ...grpc.DialOption) 
 		loggableEvents = append(loggableEvents, logging.FinishCall)
 	}
 
-	opt = append(opt,
+	defaultOpts := []grpc.DialOption{
 		grpc.WithUnaryInterceptor(chainUnaryClient(
 			grpcinterceptor.SentryUnaryClientInterceptor(c.conf.RavenDSN),
 			grpcinterceptor.ContextUnaryClientInterceptor(),
@@ -61,8 +58,11 @@ func (c *Client) Dial(ctx context.Context, addr string, opt ...grpc.DialOption) 
 
 		grpc.WithStreamInterceptor(grpc_prometheus.StreamClientInterceptor),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
-	)
-	return grpc.NewClient(addr, opt...)
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+	}
+	opts = append(defaultOpts, opts...)
+
+	return grpc.NewClient(addr, opts...)
 }
 
 // From https://github.com/grpc-ecosystem/go-grpc-middleware/blob/master/chain.go

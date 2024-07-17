@@ -5,12 +5,12 @@ use (
 	database/wpgx
 	env
 	goodns
-	zerolog
-	rpcutil
-	health
 	grpc
-	metric
+	health
 	interceptor
-	utils
+	metric
 	profiling
+	rpcutil
+	utils
+	zerolog
 )

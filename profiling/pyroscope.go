@@ -25,6 +25,9 @@ type Config struct {
 }
 
 func InitProfiler(conf *Config) *Server {
+	if conf == nil {
+		conf = &Config{}
+	}
 	envConfig := pyroscope.Config{}
 	envconfig.MustProcess("profiling", &envConfig)
 	if envConfig.ApplicationName == "" {

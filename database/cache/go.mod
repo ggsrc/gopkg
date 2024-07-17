@@ -6,7 +6,7 @@ replace github.com/ggsrc/gopkg/goodns => ../../goodns
 
 require (
 	github.com/coocood/freecache v1.2.4
-	github.com/ggsrc/gopkg/goodns v0.0.0-20240604065326-0b574afd0001
+	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/klauspost/compress v1.17.8
 	github.com/redis/go-redis/extra/redisotel/v9 v9.0.5
