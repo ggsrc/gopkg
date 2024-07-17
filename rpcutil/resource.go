@@ -189,8 +189,20 @@ func (r *Resource) OK(ctx context.Context) error {
 	)
 }
 
-func (r *Resource) RegisterCustomResource(resourceList ...CustomResource) {
+func (r *Resource) RegisterCustomResource(ctx context.Context, resourceList ...CustomResource) {
 	r.CustomResources = append(r.CustomResources, resourceList...)
+}
+
+func (r *Resource) RegisterHealthCheckable(ctx context.Context, checkable ...health.HealthCheckable) {
+	if r.HealthChecker == nil {
+		log.Ctx(ctx).Error().Msg("health checker not initialized")
+		return
+	}
+	checkFn := make([]health.Checkable, 0, len(checkable))
+	for _, c := range checkable {
+		checkFn = append(checkFn, c.OK)
+	}
+	r.HealthChecker.AddHooks(checkFn...)
 }
 
 var (
