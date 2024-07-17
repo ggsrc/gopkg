@@ -189,6 +189,10 @@ func (r *Resource) OK(ctx context.Context) error {
 	)
 }
 
+func (r *Resource) RegisterCustomResource(resourceList ...CustomResource) {
+	r.CustomResources = append(r.CustomResources, resourceList...)
+}
+
 var (
 	resource *Resource
 	initRes  sync.Once
