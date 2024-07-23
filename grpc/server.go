@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 
+	"github.com/ggsrc/gopkg/env"
 	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
 )
 
@@ -24,6 +25,7 @@ type Server struct {
 }
 
 type ServerConfig struct {
+	Debug    bool   `default:"false"`
 	Port     int    `default:"9090"`
 	RavenDSN string `default:"https://77f63f901858d8662af2db33c999b6b8@sentry.corp.galxe.com/19"`
 	// LogMasker takes in FullMethod and req as input and returns masked req
@@ -51,13 +53,19 @@ func NewServer(serviceName string, conf *ServerConfig, opts ...grpc.ServerOption
 		loggableEvents = append(loggableEvents, logging.FinishCall)
 	}
 
+	interceptors := []grpc.UnaryServerInterceptor{
+		grpcinterceptor.SentryUnaryServerInterceptor(conf.RavenDSN),
+		logging.UnaryServerInterceptor(InterceptorLogger(*logger), logging.WithLogOnEvents(loggableEvents...)),
+		grpc_prometheus.UnaryServerInterceptor,
+		grpcinterceptor.ContextUnaryServerInterceptor(),
+	}
+
+	if conf.Debug || env.IsStaging() {
+		interceptors = append(interceptors, grpcinterceptor.LogUnaryServerInterceptor())
+	}
+
 	defaultOpts := []grpc.ServerOption{
-		grpc.UnaryInterceptor(chainUnaryServer(
-			grpcinterceptor.SentryUnaryServerInterceptor(conf.RavenDSN),
-			logging.UnaryServerInterceptor(InterceptorLogger(*logger), logging.WithLogOnEvents(loggableEvents...)),
-			grpc_prometheus.UnaryServerInterceptor,
-			grpcinterceptor.ContextUnaryServerInterceptor(),
-		)),
+		grpc.UnaryInterceptor(chainUnaryServer(interceptors...)),
 		grpc.StreamInterceptor(grpc_prometheus.StreamServerInterceptor),
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 	}
