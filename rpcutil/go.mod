@@ -47,7 +47,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7 // indirect
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240701121102-34284860bec7 // indirect
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240723053530-dd4c6d269e35 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
