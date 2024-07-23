@@ -16,16 +16,16 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/grpc v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/health v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/metric v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/profiling v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240701121102-34284860bec7
-	github.com/go-co-op/gocron/v2 v2.6.0
-	github.com/redis/go-redis/v9 v9.5.2
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/env v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/grpc v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/health v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/metric v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/profiling v0.0.0-20240723053238-0738f8a5d700
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240723053238-0738f8a5d700
+	github.com/go-co-op/gocron/v2 v2.11.0
+	github.com/redis/go-redis/v9 v9.5.4
 	github.com/stumble/dcache v0.2.0
 	github.com/stumble/wpgx v0.2.2
 	github.com/uptrace/uptrace-go v1.27.1
@@ -34,11 +34,15 @@ require (
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
-	github.com/agoda-com/opentelemetry-go/otelzerolog v0.0.1 // indirect
+	github.com/agoda-com/opentelemetry-go/otelzerolog v0.0.2-0.20240530231629-5ecb4b699e80 // indirect
 	github.com/agoda-com/opentelemetry-logs-go v0.5.0 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bytedance/sonic v1.11.9 // indirect
+	github.com/bytedance/sonic/loader v0.1.1 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
+	github.com/cloudwego/base64x v0.1.4 // indirect
+	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/coocood/freecache v1.2.4 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getsentry/sentry-go v0.28.0 // indirect
@@ -61,6 +65,7 @@ require (
 	github.com/jonboulle/clockwork v0.4.0 // indirect
 	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.17.8 // indirect
+	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.59 // indirect
@@ -74,6 +79,7 @@ require (
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
+	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.52.0 // indirect
@@ -91,14 +97,15 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v1.27.0 // indirect
 	go.opentelemetry.io/otel/trace v1.27.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.2.0 // indirect
+	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/crypto v0.24.0 // indirect
-	golang.org/x/exp v0.0.0-20240416160154-fe59bbe5cc7f // indirect
-	golang.org/x/mod v0.17.0 // indirect
+	golang.org/x/exp v0.0.0-20240613232115-7f521ea00fb8 // indirect
+	golang.org/x/mod v0.18.0 // indirect
 	golang.org/x/net v0.26.0 // indirect
 	golang.org/x/sync v0.7.0 // indirect
 	golang.org/x/sys v0.21.0 // indirect
 	golang.org/x/text v0.16.0 // indirect
-	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
+	golang.org/x/tools v0.22.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20240617180043-68d350f18fd4 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240617180043-68d350f18fd4 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
