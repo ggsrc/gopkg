@@ -60,7 +60,7 @@ func NewServer(serviceName string, conf *ServerConfig, opts ...grpc.ServerOption
 		grpcinterceptor.ContextUnaryServerInterceptor(),
 	}
 
-	if conf.Debug || env.IsStaging() {
+	if conf.Debug || !env.IsProduction() {
 		interceptors = append(interceptors, grpcinterceptor.LogUnaryServerInterceptor())
 	}
 
