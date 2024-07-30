@@ -26,7 +26,7 @@ require (
 	github.com/ggsrc/gopkg/zerolog v0.0.0-20240723053238-0738f8a5d700
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/redis/go-redis/v9 v9.5.4
-	github.com/stumble/dcache v0.2.0
+	github.com/stumble/dcache v0.3.0
 	github.com/stumble/wpgx v0.2.2
 	github.com/uptrace/uptrace-go v1.27.1
 	google.golang.org/grpc v1.64.0
@@ -74,8 +74,8 @@ require (
 	github.com/prometheus/client_model v0.5.0 // indirect
 	github.com/prometheus/common v0.48.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
-	github.com/redis/go-redis/extra/rediscmd/v9 v9.0.5 // indirect
-	github.com/redis/go-redis/extra/redisotel/v9 v9.0.5 // indirect
+	github.com/redis/go-redis/extra/rediscmd/v9 v9.5.3 // indirect
+	github.com/redis/go-redis/extra/redisotel/v9 v9.5.3 // indirect
 	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/rs/zerolog v1.33.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect

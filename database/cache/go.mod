@@ -9,10 +9,10 @@ require (
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/klauspost/compress v1.17.8
-	github.com/redis/go-redis/extra/redisotel/v9 v9.0.5
-	github.com/redis/go-redis/v9 v9.5.2
+	github.com/redis/go-redis/extra/redisotel/v9 v9.5.3
+	github.com/redis/go-redis/v9 v9.5.3
 	github.com/rs/zerolog v1.33.0
-	github.com/stumble/dcache v0.2.0
+	github.com/stumble/dcache v0.3.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 )
 
@@ -22,7 +22,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
+	github.com/golang/protobuf v1.5.3 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
@@ -32,7 +32,7 @@ require (
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
-	github.com/redis/go-redis/extra/rediscmd/v9 v9.0.5 // indirect
+	github.com/redis/go-redis/extra/rediscmd/v9 v9.5.3 // indirect
 	github.com/rogpeppe/go-internal v1.12.0 // indirect
 	github.com/satori/go.uuid v1.2.0 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
