@@ -32,7 +32,7 @@ type ServerConfig struct {
 	Verbose bool `default:"false"`
 }
 
-func NewServer(serviceName string, conf *ServerConfig, opts ...grpc.ServerOption) *Server {
+func NewServer(serviceName string, conf *ServerConfig, customInterceptors []grpc.UnaryServerInterceptor, opts ...grpc.ServerOption) *Server {
 	if conf == nil {
 		conf = &ServerConfig{}
 		envconfig.MustProcess("grpc", conf)
@@ -63,6 +63,7 @@ func NewServer(serviceName string, conf *ServerConfig, opts ...grpc.ServerOption
 	if conf.Debug || !env.IsProduction() {
 		interceptors = append(interceptors, grpcinterceptor.LogUnaryServerInterceptor())
 	}
+	interceptors = append(interceptors, customInterceptors...)
 
 	defaultOpts := []grpc.ServerOption{
 		grpc.UnaryInterceptor(chainUnaryServer(interceptors...)),

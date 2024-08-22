@@ -238,7 +238,7 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	}
 	// init grpc
 	if o.InitGrpcServer {
-		myResource.GrpcServer = grpc.NewServer(o.AppName, o.GrpcServerConf, o.GrpcServerOpt...)
+		myResource.GrpcServer = grpc.NewServer(o.AppName, o.GrpcServerConf, o.GrpcInterceptors, o.GrpcServerOpt...)
 	}
 	// init cronjob
 	if o.InitCronJob {
