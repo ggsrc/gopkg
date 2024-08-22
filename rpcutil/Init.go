@@ -36,10 +36,9 @@ type RpcInitHelperOptions struct {
 	InitProfiling bool
 	ProfilingConf *profiling.Config
 
-	InitGrpcServer   bool
-	GrpcServerConf   *gg_grpc.ServerConfig
-	GrpcInterceptors []grpc.UnaryServerInterceptor
-	GrpcServerOpt    []grpc.ServerOption
+	InitGrpcServer bool
+	GrpcServerConf *gg_grpc.ServerConfig
+	GrpcServerOpt  []grpc.ServerOption
 
 	InitCronJob bool
 	CronJobOpt  []gocron.SchedulerOption
