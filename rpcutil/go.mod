@@ -16,14 +16,14 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/env v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/grpc v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/health v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/metric v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/profiling v0.0.0-20240903064035-c42799871f3d
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240903064035-c42799871f3d
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/env v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/grpc v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/health v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/metric v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/profiling v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240923015649-fb1bfb433347
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/stumble/dcache v0.3.0
@@ -33,7 +33,7 @@ require (
 )
 
 require (
-	dario.cat/mergo v1.0.0 // indirect
+	dario.cat/mergo v1.0.1 // indirect
 	github.com/agoda-com/opentelemetry-go/otelzerolog v0.0.2-0.20240530231629-5ecb4b699e80 // indirect
 	github.com/agoda-com/opentelemetry-logs-go v0.5.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -51,8 +51,8 @@ require (
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/grafana/pyroscope-go v1.1.1 // indirect
-	github.com/grafana/pyroscope-go/godeltaprof v0.1.6 // indirect
+	github.com/grafana/pyroscope-go v1.2.0 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.8 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
