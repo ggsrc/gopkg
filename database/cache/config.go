@@ -51,6 +51,7 @@ func NewRedisClient(envPrefix string) redis.UniversalClient {
 		if c.IsElastiCache {
 			// Elasticache cert cannot be applied to cname record we use
 			option.TLSConfig = &tls.Config{
+				// nolint: gosec
 				InsecureSkipVerify: true,
 			}
 		}
