@@ -16,8 +16,8 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-20240923015649-fb1bfb433347
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240923015649-fb1bfb433347
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20240924115609-fc86afcdade6
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240924115609-fc86afcdade6
 	github.com/ggsrc/gopkg/env v0.0.0-20240923015649-fb1bfb433347
 	github.com/ggsrc/gopkg/grpc v0.0.0-20240923015649-fb1bfb433347
 	github.com/ggsrc/gopkg/health v0.0.0-20240923015649-fb1bfb433347
