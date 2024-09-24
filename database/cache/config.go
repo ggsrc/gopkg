@@ -2,10 +2,13 @@ package cache
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
+	"github.com/redis/go-redis/extra/redisotel/v9"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 
 	"github.com/ggsrc/gopkg/goodns"
@@ -47,7 +50,7 @@ func NewRedisClient(envPrefix string) redis.UniversalClient {
 		}
 		if c.IsElastiCache {
 			// Elasticache cert cannot be applied to cname record we use
-			option.TLSConfig = &redis.TLSConfig{
+			option.TLSConfig = &tls.Config{
 				InsecureSkipVerify: true,
 			}
 		}
