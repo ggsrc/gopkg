@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"time"
 
@@ -41,12 +42,20 @@ func NewRedisClient(envPrefix string) redis.UniversalClient {
 			Password:     c.Password,
 		})
 	} else if !c.IsFailover {
-		redisClient = redis.NewClient(&redis.Options{
+		option := &redis.Options{
 			Addr:        fmt.Sprintf("%s:%d", c.Host, c.Port),
 			ReadTimeout: c.ReadTimeout,
 			PoolSize:    c.PoolSize,
 			Password:    c.Password,
-		})
+		}
+		if c.IsElastiCache {
+			// Elasticache cert cannot be applied to cname record we use
+			option.TLSConfig = &tls.Config{
+				// nolint: gosec
+				InsecureSkipVerify: true,
+			}
+		}
+		redisClient = redis.NewClient(option)
 	} else {
 		dnsCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
