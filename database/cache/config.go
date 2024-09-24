@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
-	"github.com/redis/go-redis/extra/redisotel/v9"
-	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 
 	"github.com/ggsrc/gopkg/goodns"
@@ -41,12 +39,19 @@ func NewRedisClient(envPrefix string) redis.UniversalClient {
 			Password:     c.Password,
 		})
 	} else if !c.IsFailover {
-		redisClient = redis.NewClient(&redis.Options{
+		option := &redis.Options{
 			Addr:        fmt.Sprintf("%s:%d", c.Host, c.Port),
 			ReadTimeout: c.ReadTimeout,
 			PoolSize:    c.PoolSize,
 			Password:    c.Password,
-		})
+		}
+		if c.IsElastiCache {
+			// Elasticache cert cannot be applied to cname record we use
+			option.TLSConfig = &redis.TLSConfig{
+				InsecureSkipVerify: true,
+			}
+		}
+		redisClient = redis.NewClient(option)
 	} else {
 		dnsCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
