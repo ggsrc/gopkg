@@ -24,7 +24,7 @@ func RpcCacheKey(method string, req interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return method + strconv.Itoa(int(h.Sum64())), nil
+	return method + strconv.FormatUint(h.Sum64(), 16), nil
 }
 
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
