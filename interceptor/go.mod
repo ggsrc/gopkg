@@ -10,11 +10,11 @@ replace (
 
 require (
 	github.com/bytedance/gopkg v0.1.1
-	github.com/bytedance/sonic v1.12.2
+	github.com/bytedance/sonic v1.12.3
 	github.com/getsentry/sentry-go v0.29.0
 	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/utils v0.0.0-20240924132639-efacd4831d3f
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240701121102-34284860bec7
+	github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240925113213-b8f2b05dcb7a
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/jinzhu/copier v0.4.0
 	go.opentelemetry.io/otel v1.30.0
