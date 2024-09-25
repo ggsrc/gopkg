@@ -2,9 +2,9 @@ package grpcinterceptor
 
 import (
 	"context"
-	"hash/maphash"
 	"strconv"
 
+	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
 	"google.golang.org/grpc"
 
@@ -12,24 +12,18 @@ import (
 	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
-func RpcCacheKey(method string, req interface{}) (string, error) {
-	var h maphash.Hash
-
+func rpcCacheKey(method string, req interface{}) (string, error) {
 	// Add a string to the hash, and print the current hash value.
 	reqBytes, err := sonic.Marshal(req)
 	if err != nil {
 		return "", err
 	}
-	_, err = h.Write(reqBytes)
-	if err != nil {
-		return "", err
-	}
-	return method + strconv.FormatUint(h.Sum64(), 16), nil
+	return method + ":" + strconv.FormatUint(xxhash3.Hash(reqBytes), 16), nil
 }
 
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		cacheKey, err := RpcCacheKey(method, req)
+		cacheKey, err := rpcCacheKey(method, req)
 		if err != nil {
 			log.Ctx(ctx).Error().Err(err).Msg("Generate rpc cacheKey error")
 		}
