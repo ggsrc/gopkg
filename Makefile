@@ -22,7 +22,7 @@ build:
 
 test:
 	@export ENV=test && \
-		go test github.com/ggsrc/gopkg/...
+		go run gotest.tools/gotestsum@latest --format github-actions -- -tags=integration github.com/ggsrc/gopkg/... -race -shuffle=on
 
 codecov:
 	export ENV=test && \
