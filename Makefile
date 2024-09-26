@@ -26,7 +26,7 @@ test:
 
 codecov:
 	export ENV=test && \
-		go test ${TEST_DIRS} -coverprofile=coverage.txt -covermode=atomic -p 1
+		go run gotest.tools/gotestsum@latest --format github-actions -- -tags=integration github.com/ggsrc/gopkg/... -race -shuffle=on -coverprofile=coverage.txt -covermode=atomic
 
 
 docker-redis-start:

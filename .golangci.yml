@@ -10,9 +10,7 @@ run:
 linters:
   disable:
     # a subset of unused (and with some weird bugs).
-    - deadcode
-    - structcheck
-    - varcheck
+    - unused
   enable:
     - asciicheck
     - bodyclose
@@ -20,7 +18,7 @@ linters:
     # next-time
     # - dupl
     - errcheck
-    - exportloopref
+    - copyloopvar
     # - funlen
     # - gochecknoglobals
     # - gochecknoinits
@@ -52,7 +50,7 @@ linters:
     # - typecheck
     - unconvert
     # - unparam
-    - unused
+    # - unused
     # - whitespace
     # - wsl
 
