@@ -22,11 +22,11 @@ build:
 
 test:
 	@export ENV=test && \
-		go run gotest.tools/gotestsum@latest --format github-actions -- -tags=integration ${TEST_DIRS} -race -shuffle=on
+		go run gotest.tools/gotestsum@latest --format github-actions -- -tags=integration github.com/ggsrc/gopkg/... -race -shuffle=on
 
 codecov:
 	export ENV=test && \
-		go run gotest.tools/gotestsum@latest --format github-actions -- -tags=integration ${TEST_DIRS} -race -shuffle=on -coverprofile=coverage.txt -covermode=atomic
+		go run gotest.tools/gotestsum@latest --format github-actions -- -tags=integration github.com/ggsrc/gopkg/... -race -shuffle=on -coverprofile=coverage.txt -covermode=atomic
 
 
 docker-redis-start:
