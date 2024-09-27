@@ -7,6 +7,7 @@ import (
 	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/ggsrc/gopkg/utils"
 	"github.com/ggsrc/gopkg/zerolog/log"
@@ -35,7 +36,11 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 				}
 				return reply, nil
 			})
-			reply = grpcReply
+			if replyMsg, ok := reply.(proto.Message); ok {
+				if grpcReplyMsg, ok := grpcReply.(proto.Message); ok {
+					proto.Merge(replyMsg, grpcReplyMsg)
+				}
+			}
 			return err
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
