@@ -48,14 +48,13 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getsentry/sentry-go v0.29.0 // indirect
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7 // indirect
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240925113213-b8f2b05dcb7a // indirect
-	github.com/ggsrc/gopkg/utils v0.0.0-20240924132639-efacd4831d3f // indirect
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927064517-42c68d4ad26e // indirect
+	github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grafana/pyroscope-go v1.2.0 // indirect
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.8 // indirect
-	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
