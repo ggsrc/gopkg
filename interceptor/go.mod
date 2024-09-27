@@ -14,7 +14,7 @@ require (
 	github.com/getsentry/sentry-go v0.29.0
 	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7
 	github.com/ggsrc/gopkg/utils v0.0.0-20240927073021-9c2796729a5f
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240925113213-b8f2b05dcb7a
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/otel v1.30.0
