@@ -35,10 +35,13 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 				}
 				return reply, nil
 			})
-			if err != nil {
-				return err
+			if grpcReply != nil {
+				reply = &grpcReply
+				if err != nil {
+					return err
+				}
+				return nil
 			}
-			reply = &grpcReply
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
