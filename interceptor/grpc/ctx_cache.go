@@ -23,21 +23,23 @@ func rpcCacheKey(method string, req interface{}) (string, error) {
 
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
-		cacheKey, err := rpcCacheKey(method, req)
-		if err != nil {
-			log.Ctx(ctx).Error().Err(err).Msg("Generate rpc cacheKey error")
-		}
-		grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
-			err = invoker(ctx, method, req, reply, cc, opts...)
+		if utils.ContextCacheExists(ctx) {
+			cacheKey, err := rpcCacheKey(method, req)
 			if err != nil {
-				return "", err
+				log.Ctx(ctx).Error().Err(err).Msg("Generate rpc cacheKey error")
 			}
-			return reply, nil
-		})
-		if err != nil {
-			return err
+			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
+				err = invoker(ctx, method, req, reply, cc, opts...)
+				if err != nil {
+					return "", err
+				}
+				return reply, nil
+			})
+			if err != nil {
+				return err
+			}
+			reply = &grpcReply
 		}
-		reply = grpcReply
-		return nil
+		return invoker(ctx, method, req, reply, cc, opts...)
 	}
 }

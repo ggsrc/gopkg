@@ -68,6 +68,13 @@ func WithCallCache(parent context.Context) context.Context {
 
 type loadFunc[T any] func(context.Context) (T, error)
 
+func ContextCacheExists(ctx context.Context) bool {
+	if v := ctx.Value(callCacheKey); v != nil {
+		return true
+	}
+	return false
+}
+
 // getOrCreateCacheItem 未启用cache才会返回nil
 func getOrCreateCacheItem(ctx context.Context, key string) *cacheItem {
 	if v := ctx.Value(callCacheKey); v != nil {
