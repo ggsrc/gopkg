@@ -40,6 +40,8 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 				if grpcReplyMsg, ok := grpcReply.(proto.Message); ok {
 					proto.Merge(replyMsg, grpcReplyMsg)
 				}
+			} else {
+				log.Ctx(ctx).Error().Msg("reply is not proto.Message")
 			}
 			return err
 		}
