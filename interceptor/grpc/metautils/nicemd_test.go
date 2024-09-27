@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/degenChat/gopkg/interceptor/grpc/metautils"
+	"github.com/ggsrc/gopkg/interceptor/grpc/metautils"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc/metadata"
 )

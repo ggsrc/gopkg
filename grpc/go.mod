@@ -9,8 +9,7 @@ replace (
 
 require (
 	github.com/ggsrc/gopkg/env v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927064202-51b013d6c2cf
-	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927064517-42c68d4ad26e
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -50,7 +49,6 @@ require (
 	golang.org/x/net v0.29.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240823204242-4ba0660f739c // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
