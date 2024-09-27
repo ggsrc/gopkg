@@ -42,9 +42,18 @@ require (
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	github.com/uptrace/uptrace-go v1.30.1 // indirect
+	go.opentelemetry.io/contrib/instrumentation/runtime v0.55.0 // indirect
 	go.opentelemetry.io/otel v1.30.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.6.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.30.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.30.0 // indirect
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.30.0 // indirect
+	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.30.0 // indirect
+	go.opentelemetry.io/otel/log v0.6.0 // indirect
 	go.opentelemetry.io/otel/metric v1.30.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.30.0 // indirect
+	go.opentelemetry.io/otel/sdk/log v0.6.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.30.0 // indirect
 	go.opentelemetry.io/otel/trace v1.30.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/net v0.29.0 // indirect
