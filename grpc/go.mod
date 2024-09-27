@@ -8,8 +8,8 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/env v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/env v0.0.0-20240927072830-4bdb7b30cd79
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927072830-4bdb7b30cd79
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
