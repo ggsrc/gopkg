@@ -28,22 +28,23 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 			cacheKey, err := rpcCacheKey(method, req)
 			if err != nil {
 				log.Ctx(ctx).Error().Err(err).Msg("Generate rpc cacheKey error")
-			}
-			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
-				err = invoker(ctx, method, req, reply, cc, opts...)
-				if err != nil {
-					return "", err
-				}
-				return reply, nil
-			})
-			if replyMsg, ok := reply.(proto.Message); ok {
-				if grpcReplyMsg, ok := grpcReply.(proto.Message); ok {
-					proto.Merge(replyMsg, grpcReplyMsg)
-				}
 			} else {
-				log.Ctx(ctx).Error().Msg("reply is not proto.Message")
+				grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
+					err = invoker(ctx, method, req, reply, cc, opts...)
+					if err != nil {
+						return "", err
+					}
+					return reply, nil
+				})
+				if replyMsg, ok := reply.(proto.Message); ok {
+					if grpcReplyMsg, ok := grpcReply.(proto.Message); ok {
+						proto.Merge(replyMsg, grpcReplyMsg)
+					}
+				} else {
+					log.Ctx(ctx).Error().Msg("reply is not proto.Message")
+				}
+				return err
 			}
-			return err
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
 	}
