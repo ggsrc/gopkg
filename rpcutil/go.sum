@@ -39,8 +39,8 @@ github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f h1:lO4WD4F/r
 github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f/go.mod h1:cuUVRXasLTGF7a8hSLbxyZXjz+1KgoB3wDUb6vlszIc=
 github.com/getsentry/sentry-go v0.29.0 h1:YtWluuCFg9OfcqnaujpY918N/AhCCwarIDWOYSBAjCA=
 github.com/getsentry/sentry-go v0.29.0/go.mod h1:jhPesDAL0Q0W2+2YEuVOvdWmVtdsr1+jtBrlDEVWwLY=
-github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a h1:qkU3DplGtGzLtZkwYnTcUvL3CER7lGHlMJbZKJBhBFk=
-github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a/go.mod h1:ySzOwZLYn9cAC+8HSzR4Ye3hd1+qZftUYyKeXb2eoFI=
+github.com/ggsrc/gopkg/utils v0.0.0-20240927073021-9c2796729a5f h1:JSeaiqhROfLbbdMsgZoBXavn0bdHfvkFWkrcNQ7FVz0=
+github.com/ggsrc/gopkg/utils v0.0.0-20240927073021-9c2796729a5f/go.mod h1:TsOhgMYy3CgSR19WFnE+7Hz3vf8YzOPiy76b34Y9xjA=
 github.com/go-co-op/gocron/v2 v2.11.0 h1:IOowNA6SzwdRFnD4/Ol3Kj6G2xKfsoiiGq2Jhhm9bvE=
 github.com/go-co-op/gocron/v2 v2.11.0/go.mod h1:xY7bJxGazKam1cz04EebrlP4S9q4iWdiAylMGP3jY9w=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=
