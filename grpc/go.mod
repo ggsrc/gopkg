@@ -9,7 +9,7 @@ replace (
 
 require (
 	github.com/ggsrc/gopkg/env v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240925113213-b8f2b05dcb7a
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927064202-51b013d6c2cf
 	github.com/grpc-ecosystem/go-grpc-middleware v1.4.0
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
