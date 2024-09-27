@@ -25,8 +25,6 @@ github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c
 github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/getsentry/sentry-go v0.29.0 h1:YtWluuCFg9OfcqnaujpY918N/AhCCwarIDWOYSBAjCA=
 github.com/getsentry/sentry-go v0.29.0/go.mod h1:jhPesDAL0Q0W2+2YEuVOvdWmVtdsr1+jtBrlDEVWwLY=
-github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a h1:qkU3DplGtGzLtZkwYnTcUvL3CER7lGHlMJbZKJBhBFk=
-github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a/go.mod h1:ySzOwZLYn9cAC+8HSzR4Ye3hd1+qZftUYyKeXb2eoFI=
 github.com/ggsrc/gopkg/zerolog v0.0.0-20240925113213-b8f2b05dcb7a h1:HcUETaAZJ/EsgeIpTu//QDdzRpIdPrm5aUfk3QLwl5A=
 github.com/ggsrc/gopkg/zerolog v0.0.0-20240925113213-b8f2b05dcb7a/go.mod h1:NwxOGg2JYAzhbOx0mjn3XHmWxQlbyHtsjGRr1/0Ho5o=
 github.com/go-errors/errors v1.4.2 h1:J6MZopCL4uSllY1OfXM374weqZFFItUbrImctkmUxIA=

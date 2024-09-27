@@ -5,6 +5,8 @@ go 1.22
 replace (
 	github.com/ggsrc/gopkg/env => ../env
 	github.com/ggsrc/gopkg/interceptor => ../interceptor
+	github.com/ggsrc/gopkg/utils => ../utils
+	github.com/ggsrc/gopkg/zerolog => ../zerolog
 )
 
 require (
