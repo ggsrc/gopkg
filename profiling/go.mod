@@ -11,5 +11,5 @@ require (
 
 require (
 	github.com/grafana/pyroscope-go/godeltaprof v0.1.8 // indirect
-	github.com/klauspost/compress v1.17.8 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 )

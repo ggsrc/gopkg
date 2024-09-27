@@ -3,10 +3,10 @@ package grpcinterceptor
 import (
 	"context"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
+	"github.com/ggsrc/gopkg/interceptor/grpc/metautils"
 	pkgmetadata "github.com/ggsrc/gopkg/interceptor/metadata"
 )
 

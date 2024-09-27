@@ -10,10 +10,10 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	"github.com/rs/zerolog"
 
+	"github.com/ggsrc/gopkg/interceptor/grpc/metautils"
 	"github.com/ggsrc/gopkg/interceptor/metadata"
 )
 
