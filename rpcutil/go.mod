@@ -16,14 +16,14 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/env v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/grpc v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/health v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/metric v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/profiling v0.0.0-20240925113213-b8f2b05dcb7a
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240925113213-b8f2b05dcb7a
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/env v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/grpc v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/health v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/metric v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/profiling v0.0.0-20240927070610-206992d360f9
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927070610-206992d360f9
 	github.com/go-co-op/gocron/v2 v2.11.0
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/stumble/dcache v0.3.0
@@ -48,7 +48,7 @@ require (
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/getsentry/sentry-go v0.29.0 // indirect
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7 // indirect
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927064517-42c68d4ad26e // indirect
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927070610-206992d360f9 // indirect
 	github.com/ggsrc/gopkg/utils v0.0.0-20240925113213-b8f2b05dcb7a // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
