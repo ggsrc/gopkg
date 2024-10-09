@@ -9,6 +9,7 @@ const (
 	CTX_KEY_ACCOUNT_ID     = "account_id"
 	CTX_KEY_ACCOUNT_TYPE   = "account_type"
 	CTX_KEY_ORIGIN         = "origin"
+	CTX_KEY_APP_CTX        = "app-ctx-bin"
 )
 
 const (
