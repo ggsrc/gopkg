@@ -12,6 +12,7 @@ require (
 	github.com/redis/go-redis/extra/redisotel/v9 v9.0.5
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/rs/zerolog v1.33.0
+	github.com/showa-93/go-mask v0.6.2
 	github.com/stumble/dcache v0.3.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 )

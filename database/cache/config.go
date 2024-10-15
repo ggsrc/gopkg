@@ -10,6 +10,7 @@ import (
 	"github.com/redis/go-redis/extra/redisotel/v9"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
+	mask "github.com/showa-93/go-mask"
 
 	"github.com/ggsrc/gopkg/goodns"
 )
@@ -17,7 +18,7 @@ import (
 type Config struct {
 	Host                string        `default:"127.0.0.1"`
 	Port                int           `default:"6379"`
-	Password            string        `default:""`
+	Password            string        `default:"" mask:"fixed"`
 	IsFailover          bool          `default:"false"`
 	IsElastiCache       bool          `default:"false"`
 	IsClusterMode       bool          `default:"false"`
@@ -28,9 +29,14 @@ type Config struct {
 }
 
 func NewRedisClient(envPrefix string) redis.UniversalClient {
+	masker := mask.NewMasker()
+	masker.RegisterMaskStringFunc(mask.MaskTypeFilled, masker.MaskFilledString)
+	masker.RegisterMaskStringFunc(mask.MaskTypeFixed, masker.MaskFixedString)
+
 	c := Config{}
 	envconfig.MustProcess(envPrefix, &c)
-	log.Warn().Msgf("Redis Config: %+v", c)
+	conf, _ := masker.Mask(c)
+	log.Warn().Msgf("Redis Config: %+v", conf)
 
 	var redisClient redis.UniversalClient
 	if c.IsClusterMode {
@@ -90,13 +96,13 @@ func NewRedisClient(envPrefix string) redis.UniversalClient {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 	if err := redisotel.InstrumentTracing(redisClient); err != nil {
-		log.Fatal().Err(err).Msgf("failed to InstrumentTracing to redis; config: %v", c)
+		log.Fatal().Err(err).Msgf("failed to InstrumentTracing to redis; config: %v", conf)
 	}
 	if err := redisotel.InstrumentMetrics(redisClient); err != nil {
-		log.Fatal().Err(err).Msgf("failed to InstrumentMetrics to redis; config: %v", c)
+		log.Fatal().Err(err).Msgf("failed to InstrumentMetrics to redis; config: %v", conf)
 	}
 	if err := redisClient.Ping(ctx).Err(); err != nil {
-		log.Fatal().Err(err).Msgf("failed to connect to redis; config: %v", c)
+		log.Fatal().Err(err).Msgf("failed to connect to redis; config: %v", conf)
 	}
 	return redisClient
 }

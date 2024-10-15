@@ -8,12 +8,24 @@ import (
 
 	"github.com/ggsrc/gopkg/interceptor/grpc/metautils"
 	pkgmetadata "github.com/ggsrc/gopkg/interceptor/metadata"
+	"github.com/ggsrc/gopkg/mctx"
+	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
 func ContextUnaryServerInterceptor() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
 		// set request source
 		md := metautils.ExtractIncoming(ctx)
+		appCtxStr := md.Get(pkgmetadata.CTX_KEY_APP_CTX)
+		if appCtxStr != "" {
+			appCtx, err := mctx.StringToAppCtx(appCtxStr)
+			if err == nil {
+				ctx = mctx.ContextWithAppCtx(ctx, appCtx)
+			} else {
+				log.Ctx(ctx).Error().Err(err).Msg("failed to convert app ctx")
+			}
+		}
+
 		requestSource := md.Get(pkgmetadata.CTX_KEY_REQUEST_SOURCE)
 		//nolint:golint,staticcheck
 		ctx = context.WithValue(ctx, pkgmetadata.CTX_KEY_REQUEST_SOURCE, requestSource)
