@@ -10,8 +10,10 @@ replace (
 	github.com/ggsrc/gopkg/grpc => ../grpc
 	github.com/ggsrc/gopkg/health => ../health
 	github.com/ggsrc/gopkg/interceptor => ../interceptor
+	github.com/ggsrc/gopkg/mctx => ../mctx
 	github.com/ggsrc/gopkg/metric => ../metric
 	github.com/ggsrc/gopkg/profiling => ../profiling
+	github.com/ggsrc/gopkg/utils => ../utils
 	github.com/ggsrc/gopkg/zerolog => ../zerolog
 )
 
