@@ -11,7 +11,7 @@ replace (
 
 require (
 	github.com/ggsrc/gopkg/env v0.0.0-20240927072830-4bdb7b30cd79
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240927074458-8b290f89f1fb
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20240929063729-3bedb6dafb03
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -30,7 +30,7 @@ require (
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/getsentry/sentry-go v0.29.0 // indirect
 	github.com/ggsrc/gopkg/utils v0.0.0-20240927073021-9c2796729a5f // indirect
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240925113213-b8f2b05dcb7a // indirect
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
