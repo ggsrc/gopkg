@@ -3,6 +3,7 @@ package grpcinterceptor
 import (
 	"context"
 	"strconv"
+	"time"
 
 	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
@@ -40,6 +41,10 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
 				if utils.SingleflightEnable(ctx) {
 					_, err, _ := g.Do(cacheKey, func() (interface{}, error) {
+						go func() {
+							time.Sleep(100 * time.Millisecond)
+							g.Forget(cacheKey)
+						}()
 						return nil, invoker(ctx, method, req, reply, cc, opts...)
 					})
 					if err != nil {
@@ -68,6 +73,10 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		// 只有 singleflight
 		if utils.SingleflightEnable(ctx) {
 			_, err, _ := g.Do(cacheKey, func() (interface{}, error) {
+				go func() {
+					time.Sleep(100 * time.Millisecond)
+					g.Forget(cacheKey)
+				}()
 				return nil, invoker(ctx, method, req, reply, cc, opts...)
 			})
 			return err
