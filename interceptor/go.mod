@@ -6,6 +6,7 @@ replace (
 	github.com/ggsrc/gopkg/env => ../env
 	github.com/ggsrc/gopkg/utils => ../utils
 	github.com/ggsrc/gopkg/zerolog => ../zerolog
+	github.com/ggsrc/gopkg/mctx => ../mctx
 )
 
 require (
@@ -13,12 +14,14 @@ require (
 	github.com/bytedance/sonic v1.12.3
 	github.com/getsentry/sentry-go v0.29.0
 	github.com/ggsrc/gopkg/env v0.0.0-20240701121102-34284860bec7
-	github.com/ggsrc/gopkg/utils v0.0.0-20240927073021-9c2796729a5f
+	github.com/ggsrc/gopkg/mctx v0.0.0-20241023073304-d2bc50fff59d
+	github.com/ggsrc/gopkg/utils v0.0.0-20241023073304-d2bc50fff59d
 	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb
 	github.com/jinzhu/copier v0.4.0
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/otel v1.30.0
 	go.opentelemetry.io/otel/trace v1.30.0
+	golang.org/x/sync v0.8.0
 	google.golang.org/grpc v1.67.0
 	google.golang.org/protobuf v1.34.2
 )

@@ -5,13 +5,14 @@ go 1.22
 replace (
 	github.com/ggsrc/gopkg/env => ../env
 	github.com/ggsrc/gopkg/interceptor => ../interceptor
+	github.com/ggsrc/gopkg/mctx => ../mctx
 	github.com/ggsrc/gopkg/utils => ../utils
 	github.com/ggsrc/gopkg/zerolog => ../zerolog
 )
 
 require (
 	github.com/ggsrc/gopkg/env v0.0.0-20240927072830-4bdb7b30cd79
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20240929063729-3bedb6dafb03
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20241023073304-d2bc50fff59d
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -29,7 +30,8 @@ require (
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/getsentry/sentry-go v0.29.0 // indirect
-	github.com/ggsrc/gopkg/utils v0.0.0-20240927073021-9c2796729a5f // indirect
+	github.com/ggsrc/gopkg/mctx v0.0.0-20241023073304-d2bc50fff59d // indirect
+	github.com/ggsrc/gopkg/utils v0.0.0-20241023073304-d2bc50fff59d // indirect
 	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -49,6 +51,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.30.0 // indirect
 	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
 	golang.org/x/net v0.29.0 // indirect
+	golang.org/x/sync v0.8.0 // indirect
 	golang.org/x/sys v0.25.0 // indirect
 	golang.org/x/text v0.18.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
