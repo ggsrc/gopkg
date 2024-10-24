@@ -42,7 +42,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
 				if utils.SingleflightEnable(ctx) {
 					log.Ctx(ctx).Info().Msg("singleflight enabled")
-					_, err, _ := g.Do(cacheKey, func() (interface{}, error) {
+					_, err, _ = g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
 							time.Sleep(100 * time.Millisecond)
 							g.Forget(cacheKey)
@@ -50,11 +50,13 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 						return nil, invoker(ctx, method, req, reply, cc, opts...)
 					})
 					if err != nil {
+						log.Ctx(ctx).Error().Interface("reply", reply).Msg("reply")
 						return nil, err
 					}
 				} else {
 					err = invoker(ctx, method, req, reply, cc, opts...)
 					if err != nil {
+						log.Ctx(ctx).Error().Interface("reply", reply).Msg("reply")
 						return nil, err
 					}
 				}
