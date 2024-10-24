@@ -38,10 +38,10 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		}
 		// 开启了 context cache
 		if utils.ContextCacheExists(ctx) {
-			log.Ctx(ctx).Debug().Msg("context cache enabled")
+			log.Ctx(ctx).Info().Msg("context cache enabled")
 			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
 				if utils.SingleflightEnable(ctx) {
-					log.Ctx(ctx).Debug().Msg("singleflight enabled")
+					log.Ctx(ctx).Info().Msg("singleflight enabled")
 					_, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
 							time.Sleep(100 * time.Millisecond)
@@ -60,7 +60,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 				}
 				return reply, nil
 			})
-			log.Ctx(ctx).Debug().Interface("reply", reply).Interface("grpcReply", grpcReply).Msg("reply")
+			log.Ctx(ctx).Info().Interface("reply", reply).Interface("grpcReply", grpcReply).Msg("reply")
 			if reply != grpcReply {
 				if replyMsg, ok := reply.(proto.Message); ok {
 					if grpcReplyMsg, ok := grpcReply.(proto.Message); ok {
