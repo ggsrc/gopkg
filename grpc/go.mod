@@ -12,7 +12,7 @@ replace (
 
 require (
 	github.com/ggsrc/gopkg/env v0.0.0-20240927072830-4bdb7b30cd79
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20241023073304-d2bc50fff59d
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20241024103720-270bf40663d8
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
