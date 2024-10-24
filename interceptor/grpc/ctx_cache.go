@@ -40,20 +40,25 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		if utils.ContextCacheExists(ctx) {
 			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
 				if utils.SingleflightEnable(ctx) {
-					_, err, _ := g.Do(cacheKey, func() (interface{}, error) {
+					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
 							time.Sleep(100 * time.Millisecond)
 							g.Forget(cacheKey)
 						}()
-						return nil, invoker(ctx, method, req, reply, cc, opts...)
+						err2 := invoker(ctx, method, req, reply, cc, opts...)
+						if err2 != nil {
+							return nil, err2
+						}
+						return reply, nil
 					})
 					if err != nil {
 						return nil, err
 					}
+					return reply2, nil
 				} else {
 					err = invoker(ctx, method, req, reply, cc, opts...)
 					if err != nil {
-						return "", err
+						return nil, err
 					}
 				}
 				return reply, nil
@@ -68,17 +73,6 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 					log.Ctx(ctx).Error().Msg("reply is not proto.Message")
 				}
 			}
-			return err
-		}
-		// 只有 singleflight
-		if utils.SingleflightEnable(ctx) {
-			_, err, _ := g.Do(cacheKey, func() (interface{}, error) {
-				go func() {
-					time.Sleep(100 * time.Millisecond)
-					g.Forget(cacheKey)
-				}()
-				return nil, invoker(ctx, method, req, reply, cc, opts...)
-			})
 			return err
 		}
 		return invoker(ctx, method, req, reply, cc, opts...)
