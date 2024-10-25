@@ -54,14 +54,16 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 					span2.SetAttributes(attribute.String("cacheKey", cacheKey))
 					defer span2.End()
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
+						cacheReply, ok := cache.Get(cacheKey)
+						if ok {
+							_, span3 := utils.StartTrace(ctx2, "rpcMemCache")
+							span3.SetAttributes(attribute.String("cacheKey", cacheKey))
+							defer span3.End()
+							return cacheReply, nil
+						}
 						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
 						span3.SetAttributes(attribute.String("cacheKey", cacheKey))
 						defer span3.End()
-
-						cacheReply, ok := cache.Get(cacheKey)
-						if ok {
-							return cacheReply, nil
-						}
 						err2 := invoker(ctx4, method, req, reply, cc, opts...)
 						if err2 != nil {
 							return nil, err2
