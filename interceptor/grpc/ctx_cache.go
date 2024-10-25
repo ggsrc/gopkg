@@ -7,6 +7,8 @@ import (
 
 	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
+	"github.com/kelseyhightower/envconfig"
+	"github.com/maypok86/otter"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -14,8 +16,6 @@ import (
 	"github.com/ggsrc/gopkg/utils"
 	"github.com/ggsrc/gopkg/zerolog/log"
 )
-
-var g singleflight.Group
 
 func rpcCacheKey(method string, req interface{}) (string, error) {
 	// Add a string to the hash, and print the current hash value.
@@ -26,7 +26,36 @@ func rpcCacheKey(method string, req interface{}) (string, error) {
 	return method + ":" + strconv.FormatUint(xxhash3.Hash(reqBytes), 16), nil
 }
 
+type CacheConfig struct {
+	Capacity    int `default:"10000"`
+	TTL         int `default:"50"`
+	MaxWaitTime int `default:"100"`
+}
+
+var (
+	conf  = &CacheConfig{}
+	cache otter.Cache[string, any]
+)
+
+func init() {
+	envconfig.MustProcess("grpc_cache", conf)
+
+	var err error
+	cache, err = otter.MustBuilder[string, any](conf.Capacity).
+		CollectStats().
+		Cost(func(key string, value any) uint32 {
+			return 1
+		}).
+		WithTTL(time.Millisecond * time.Duration(conf.TTL)).
+		Build()
+	if err != nil {
+		panic(err)
+	}
+}
+
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
+	var g singleflight.Group
+
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		if !utils.ContextCacheExists(ctx) && !utils.SingleflightEnable(ctx) {
 			return invoker(ctx, method, req, reply, cc, opts...)
@@ -42,12 +71,21 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 				if utils.SingleflightEnable(ctx) {
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
-							time.Sleep(100 * time.Millisecond)
+							time.Sleep(time.Millisecond * time.Duration(conf.MaxWaitTime))
 							g.Forget(cacheKey)
 						}()
+						if utils.MemCacheEnable(ctx) {
+							cacheReply, ok := cache.Get(cacheKey)
+							if ok {
+								return cacheReply, nil
+							}
+						}
 						err2 := invoker(ctx, method, req, reply, cc, opts...)
 						if err2 != nil {
 							return nil, err2
+						}
+						if utils.MemCacheEnable(ctx) {
+							cache.SetIfAbsent(cacheKey, reply)
 						}
 						return reply, nil
 					})

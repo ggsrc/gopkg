@@ -58,6 +58,7 @@ func (cache *callCache) getOrCreateCacheItem(key string) *cacheItem {
 
 const callCacheKey string = "_g_call_cache"
 const singleflight string = "_g_singleflight"
+const memCacheKey string = "_g_mem_cache"
 
 // WithCallCache 返回支持调用缓存的context
 func WithCallCache(parent context.Context) context.Context {
@@ -75,6 +76,14 @@ func WithSingleflight(parent context.Context) context.Context {
 	return context.WithValue(parent, singleflight, new(callCache)) // nolint: staticcheck
 }
 
+// WithMemCache 返回支持memory cache的context
+func WithMemCache(parent context.Context) context.Context {
+	if parent.Value(memCacheKey) != nil {
+		return parent
+	}
+	return context.WithValue(parent, memCacheKey, new(callCache)) // nolint: staticcheck
+}
+
 type loadFunc[T any] func(context.Context) (T, error)
 
 func ContextCacheExists(ctx context.Context) bool {
@@ -86,6 +95,13 @@ func ContextCacheExists(ctx context.Context) bool {
 
 func SingleflightEnable(ctx context.Context) bool {
 	if v := ctx.Value(singleflight); v != nil {
+		return true
+	}
+	return false
+}
+
+func MemCacheEnable(ctx context.Context) bool {
+	if v := ctx.Value(memCacheKey); v != nil {
 		return true
 	}
 	return false

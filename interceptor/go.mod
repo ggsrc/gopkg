@@ -4,9 +4,9 @@ go 1.22
 
 replace (
 	github.com/ggsrc/gopkg/env => ../env
+	github.com/ggsrc/gopkg/mctx => ../mctx
 	github.com/ggsrc/gopkg/utils => ../utils
 	github.com/ggsrc/gopkg/zerolog => ../zerolog
-	github.com/ggsrc/gopkg/mctx => ../mctx
 )
 
 require (
@@ -18,6 +18,8 @@ require (
 	github.com/ggsrc/gopkg/utils v0.0.0-20241023073304-d2bc50fff59d
 	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb
 	github.com/jinzhu/copier v0.4.0
+	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/maypok86/otter v1.2.3
 	github.com/stretchr/testify v1.9.0
 	go.opentelemetry.io/otel v1.30.0
 	go.opentelemetry.io/otel/trace v1.30.0
@@ -31,6 +33,8 @@ require (
 	github.com/cloudwego/base64x v0.1.4 // indirect
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
+	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
