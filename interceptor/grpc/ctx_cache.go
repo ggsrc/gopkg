@@ -32,12 +32,16 @@ type CacheConfig struct {
 	TTL      int `default:"50"`
 }
 
-func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
-	var g singleflight.Group
+var (
+	cache otter.Cache[string, any]
+)
+
+func init() {
 	conf := &CacheConfig{}
 	envconfig.MustProcess("grpc_cache", conf)
 
-	cache, err := otter.MustBuilder[string, any](conf.Capacity).
+	var err error
+	cache, err = otter.MustBuilder[string, any](conf.Capacity).
 		CollectStats().
 		Cost(func(key string, value any) uint32 {
 			return 1
@@ -47,6 +51,10 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	if err != nil {
 		panic(err)
 	}
+}
+
+func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
+	var g singleflight.Group
 
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		if !utils.ContextCacheExists(ctx) && !utils.SingleflightEnable(ctx) {
@@ -72,12 +80,14 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 							time.Sleep(time.Millisecond * 100)
 							g.Forget(cacheKey)
 						}()
-						cacheReply, ok := cache.Get(cacheKey)
-						if ok {
-							_, span3 := utils.StartTrace(ctx2, "rpcMemCache")
-							span3.SetAttributes(attribute.String("cacheKey", cacheKey))
-							defer span3.End()
-							return cacheReply, nil
+						if utils.MemCacheEnable(ctx2) {
+							cacheReply, ok := cache.Get(cacheKey)
+							if ok {
+								_, span3 := utils.StartTrace(ctx2, "rpcMemCache")
+								span3.SetAttributes(attribute.String("cacheKey", cacheKey))
+								defer span3.End()
+								return cacheReply, nil
+							}
 						}
 						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
 						span3.SetAttributes(attribute.String("cacheKey", cacheKey))
@@ -86,7 +96,9 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 						if err2 != nil {
 							return nil, err2
 						}
-						cache.SetIfAbsent(cacheKey, reply)
+						if utils.MemCacheEnable(ctx2) {
+							cache.SetIfAbsent(cacheKey, reply)
+						}
 						return reply, nil
 					})
 					if err != nil {
