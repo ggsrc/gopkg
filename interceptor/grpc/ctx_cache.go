@@ -2,15 +2,13 @@ package grpcinterceptor
 
 import (
 	"context"
-	"go.opentelemetry.io/otel/attribute"
-	"strconv"
-	"time"
-
 	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
+	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
+	"strconv"
 
 	"github.com/ggsrc/gopkg/utils"
 	"github.com/ggsrc/gopkg/zerolog/log"
@@ -51,10 +49,6 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
 						span3.SetAttributes(attribute.String("cacheKey", cacheKey))
 						defer span3.End()
-						go func() {
-							time.Sleep(100 * time.Millisecond)
-							g.Forget(cacheKey)
-						}()
 						err2 := invoker(ctx4, method, req, reply, cc, opts...)
 						if err2 != nil {
 							return nil, err2
