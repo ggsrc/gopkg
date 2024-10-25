@@ -29,7 +29,7 @@ func rpcCacheKey(method string, req interface{}) (string, error) {
 
 type CacheConfig struct {
 	MaxCost int64 `default:"67108864"`
-	TTL     int   `default:"100"`
+	TTL     int   `default:"50"`
 }
 
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
@@ -77,7 +77,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 						if err2 != nil {
 							return nil, err2
 						}
-						cache.SetWithTTL(cacheKey, reply, 1, time.Microsecond*time.Duration(conf.TTL))
+						cache.SetWithTTL(cacheKey, reply, 1, time.Millisecond*time.Duration(conf.TTL))
 						return reply, nil
 					})
 					if err != nil {
