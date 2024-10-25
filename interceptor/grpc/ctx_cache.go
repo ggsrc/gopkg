@@ -28,20 +28,16 @@ func rpcCacheKey(method string, req interface{}) (string, error) {
 }
 
 type CacheConfig struct {
-	MaxCost int64 `default:"67108864"`
-	TTL     int   `default:"50"`
+	Capacity int `default:"10000"`
+	TTL      int `default:"50"`
 }
-
-var (
-	cacheSize = 100 * 1024 * 1024
-)
 
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	var g singleflight.Group
 	conf := &CacheConfig{}
 	envconfig.MustProcess("grpc_cache", conf)
 
-	cache, err := otter.MustBuilder[string, any](10000).
+	cache, err := otter.MustBuilder[string, any](conf.Capacity).
 		CollectStats().
 		Cost(func(key string, value any) uint32 {
 			return 1
