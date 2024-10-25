@@ -7,8 +7,8 @@ import (
 
 	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
-	"github.com/dgraph-io/ristretto"
 	"github.com/kelseyhightower/envconfig"
+	"github.com/maypok86/otter"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
@@ -32,16 +32,25 @@ type CacheConfig struct {
 	TTL     int   `default:"50"`
 }
 
+var (
+	cacheSize = 100 * 1024 * 1024
+)
+
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 	var g singleflight.Group
 	conf := &CacheConfig{}
 	envconfig.MustProcess("grpc_cache", conf)
 
-	cache, _ := ristretto.NewCache(&ristretto.Config{
-		NumCounters: 1e7,          // number of keys to track frequency of (10M).
-		MaxCost:     conf.MaxCost, // maximum cost of cache (64MB).
-		BufferItems: 64,           // number of keys per Get buffer.
-	})
+	cache, err := otter.MustBuilder[string, any](10000).
+		CollectStats().
+		Cost(func(key string, value any) uint32 {
+			return 1
+		}).
+		WithTTL(time.Millisecond * time.Duration(conf.TTL)).
+		Build()
+	if err != nil {
+		panic(err)
+	}
 
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		if !utils.ContextCacheExists(ctx) && !utils.SingleflightEnable(ctx) {
@@ -63,6 +72,10 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 					span2.SetAttributes(attribute.String("cacheKey", cacheKey))
 					defer span2.End()
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
+						go func() {
+							time.Sleep(time.Millisecond * 100)
+							g.Forget(cacheKey)
+						}()
 						cacheReply, ok := cache.Get(cacheKey)
 						if ok {
 							_, span3 := utils.StartTrace(ctx2, "rpcMemCache")
@@ -77,7 +90,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 						if err2 != nil {
 							return nil, err2
 						}
-						cache.SetWithTTL(cacheKey, reply, 1, time.Millisecond*time.Duration(conf.TTL))
+						cache.SetIfAbsent(cacheKey, reply)
 						return reply, nil
 					})
 					if err != nil {
