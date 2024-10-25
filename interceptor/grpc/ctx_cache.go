@@ -27,16 +27,17 @@ func rpcCacheKey(method string, req interface{}) (string, error) {
 }
 
 type CacheConfig struct {
-	Capacity int `default:"10000"`
-	TTL      int `default:"50"`
+	Capacity    int `default:"10000"`
+	TTL         int `default:"50"`
+	MaxWaitTime int `default:"100"`
 }
 
 var (
+	conf  = &CacheConfig{}
 	cache otter.Cache[string, any]
 )
 
 func init() {
-	conf := &CacheConfig{}
 	envconfig.MustProcess("grpc_cache", conf)
 
 	var err error
@@ -70,7 +71,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 				if utils.SingleflightEnable(ctx) {
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
-							time.Sleep(time.Millisecond * 100)
+							time.Sleep(time.Millisecond * time.Duration(conf.MaxWaitTime))
 							g.Forget(cacheKey)
 						}()
 						if utils.MemCacheEnable(ctx) {
