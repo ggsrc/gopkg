@@ -38,14 +38,18 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		}
 		// 开启了 context cache
 		if utils.ContextCacheExists(ctx) {
-			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
-				if utils.SingleflightEnable(ctx) {
+			ctx2, span := utils.StartTrace(ctx, "rpcCtxCache", nil)
+			defer span.End()
+			grpcReply, err := utils.LoadFromCtxCache(ctx2, cacheKey, func(ctx context.Context) (interface{}, error) {
+				if utils.SingleflightEnable(ctx2) {
+					ctx3, span2 := utils.StartTrace(ctx2, "rpcSfCache", nil)
+					defer span2.End()
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
 							time.Sleep(100 * time.Millisecond)
 							g.Forget(cacheKey)
 						}()
-						err2 := invoker(ctx, method, req, reply, cc, opts...)
+						err2 := invoker(ctx3, method, req, reply, cc, opts...)
 						if err2 != nil {
 							return nil, err2
 						}
@@ -56,7 +60,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 					}
 					return reply2, nil
 				} else {
-					err = invoker(ctx, method, req, reply, cc, opts...)
+					err = invoker(ctx2, method, req, reply, cc, opts...)
 					if err != nil {
 						return nil, err
 					}
