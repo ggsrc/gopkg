@@ -2,19 +2,20 @@ package grpcinterceptor
 
 import (
 	"context"
+	"strconv"
+	"time"
+
 	"github.com/bytedance/gopkg/util/xxhash3"
 	"github.com/bytedance/sonic"
+	"github.com/dgraph-io/ristretto"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
-	"strconv"
 
 	"github.com/ggsrc/gopkg/utils"
 	"github.com/ggsrc/gopkg/zerolog/log"
 )
-
-var g singleflight.Group
 
 func rpcCacheKey(method string, req interface{}) (string, error) {
 	// Add a string to the hash, and print the current hash value.
@@ -26,6 +27,13 @@ func rpcCacheKey(method string, req interface{}) (string, error) {
 }
 
 func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
+	var g singleflight.Group
+	cache, _ := ristretto.NewCache(&ristretto.Config{
+		NumCounters: 1e7,     // number of keys to track frequency of (10M).
+		MaxCost:     1 << 26, // maximum cost of cache (64MB).
+		BufferItems: 64,      // number of keys per Get buffer.
+	})
+
 	return func(ctx context.Context, method string, req, reply interface{}, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		if !utils.ContextCacheExists(ctx) && !utils.SingleflightEnable(ctx) {
 			return invoker(ctx, method, req, reply, cc, opts...)
@@ -49,10 +57,16 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
 						span3.SetAttributes(attribute.String("cacheKey", cacheKey))
 						defer span3.End()
+
+						cacheReply, ok := cache.Get(cacheKey)
+						if ok {
+							return cacheReply, nil
+						}
 						err2 := invoker(ctx4, method, req, reply, cc, opts...)
 						if err2 != nil {
 							return nil, err2
 						}
+						cache.SetWithTTL(cacheKey, reply, 1, time.Microsecond*10)
 						return reply, nil
 					})
 					if err != nil {
