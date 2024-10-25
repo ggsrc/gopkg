@@ -2,6 +2,7 @@ package grpcinterceptor
 
 import (
 	"context"
+	"go.opentelemetry.io/otel/attribute"
 	"strconv"
 	"time"
 
@@ -39,13 +40,16 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		// 开启了 context cache
 		if utils.ContextCacheExists(ctx) {
 			ctx2, span := utils.StartTrace(ctx, "rpcCtxCache")
+			span.SetAttributes(attribute.String("cacheKey", cacheKey))
 			defer span.End()
 			grpcReply, err := utils.LoadFromCtxCache(ctx2, cacheKey, func(ctx context.Context) (interface{}, error) {
 				if utils.SingleflightEnable(ctx2) {
 					ctx3, span2 := utils.StartTrace(ctx2, "rpcSfCache")
+					span2.SetAttributes(attribute.String("cacheKey", cacheKey))
 					defer span2.End()
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
+						span3.SetAttributes(attribute.String("cacheKey", cacheKey))
 						defer span3.End()
 						go func() {
 							time.Sleep(100 * time.Millisecond)
