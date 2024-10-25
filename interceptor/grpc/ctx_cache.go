@@ -38,14 +38,14 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		}
 		// 开启了 context cache
 		if utils.ContextCacheExists(ctx) {
-			ctx2, span := utils.StartTrace(ctx, "rpcCtxCache", nil)
+			ctx2, span := utils.StartTrace(ctx, "rpcCtxCache")
 			defer span.End()
 			grpcReply, err := utils.LoadFromCtxCache(ctx2, cacheKey, func(ctx context.Context) (interface{}, error) {
 				if utils.SingleflightEnable(ctx2) {
-					ctx3, span2 := utils.StartTrace(ctx2, "rpcSfCache", nil)
+					ctx3, span2 := utils.StartTrace(ctx2, "rpcSfCache")
 					defer span2.End()
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
-						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke", nil)
+						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
 						defer span3.End()
 						go func() {
 							time.Sleep(100 * time.Millisecond)
