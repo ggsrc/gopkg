@@ -9,7 +9,6 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/maypok86/otter"
-	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/sync/singleflight"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -67,36 +66,24 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 		}
 		// 开启了 context cache
 		if utils.ContextCacheExists(ctx) {
-			ctx2, span := utils.StartTrace(ctx, "rpcCtxCache")
-			span.SetAttributes(attribute.String("cacheKey", cacheKey))
-			defer span.End()
-			grpcReply, err := utils.LoadFromCtxCache(ctx2, cacheKey, func(ctx context.Context) (interface{}, error) {
-				if utils.SingleflightEnable(ctx2) {
-					ctx3, span2 := utils.StartTrace(ctx2, "rpcSfCache")
-					span2.SetAttributes(attribute.String("cacheKey", cacheKey))
-					defer span2.End()
+			grpcReply, err := utils.LoadFromCtxCache(ctx, cacheKey, func(ctx context.Context) (interface{}, error) {
+				if utils.SingleflightEnable(ctx) {
 					reply2, err, _ := g.Do(cacheKey, func() (interface{}, error) {
 						go func() {
 							time.Sleep(time.Millisecond * 100)
 							g.Forget(cacheKey)
 						}()
-						if utils.MemCacheEnable(ctx2) {
+						if utils.MemCacheEnable(ctx) {
 							cacheReply, ok := cache.Get(cacheKey)
 							if ok {
-								_, span3 := utils.StartTrace(ctx2, "rpcMemCache")
-								span3.SetAttributes(attribute.String("cacheKey", cacheKey))
-								defer span3.End()
 								return cacheReply, nil
 							}
 						}
-						ctx4, span3 := utils.StartTrace(ctx3, "rpcInvoke")
-						span3.SetAttributes(attribute.String("cacheKey", cacheKey))
-						defer span3.End()
-						err2 := invoker(ctx4, method, req, reply, cc, opts...)
+						err2 := invoker(ctx, method, req, reply, cc, opts...)
 						if err2 != nil {
 							return nil, err2
 						}
-						if utils.MemCacheEnable(ctx2) {
+						if utils.MemCacheEnable(ctx) {
 							cache.SetIfAbsent(cacheKey, reply)
 						}
 						return reply, nil
@@ -106,7 +93,7 @@ func ContextCacheUnaryClientInterceptor() grpc.UnaryClientInterceptor {
 					}
 					return reply2, nil
 				} else {
-					err = invoker(ctx2, method, req, reply, cc, opts...)
+					err = invoker(ctx, method, req, reply, cc, opts...)
 					if err != nil {
 						return nil, err
 					}
