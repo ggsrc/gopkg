@@ -57,7 +57,9 @@ func readResBody(r *http.Response) (string, error) {
 	case "application/json":
 	case "application/json; charset=utf-8":
 	default:
-		return "", nil
+		if r.StatusCode == http.StatusOK {
+			return "", nil
+		}
 	}
 
 	// Read the body
