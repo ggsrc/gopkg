@@ -2,13 +2,11 @@ package httputil
 
 import (
 	"context"
-	"net/http"
-	"net/http/httptrace"
-
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"net/http"
 
 	"github.com/ggsrc/gopkg/env"
 	"github.com/ggsrc/gopkg/zerolog/log"
@@ -62,19 +60,19 @@ func recordRequestAndResponse(ctx context.Context, span trace.Span, req *http.Re
 	}
 }
 
-func NewHttpClient(name string) *http.Client {
-	return &http.Client{Transport: NewTransport(name)}
+func NewDefaultHttpClient(name string) *http.Client {
+	return &http.Client{Transport: NewTransport(name, http.DefaultTransport)}
 }
 
-func NewTransport(name string) http.RoundTripper {
-	transport := otelhttp.NewTransport(
-		http.DefaultTransport,
+func NewTransport(name string, base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
+	opts = append([]otelhttp.Option{
 		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
 			return name + "HTTP " + r.Method
 		}),
-		otelhttp.WithClientTrace(func(ctx context.Context) *httptrace.ClientTrace {
-			return &httptrace.ClientTrace{}
-		}),
+	}, opts...)
+	transport := otelhttp.NewTransport(
+		base,
+		opts...,
 	)
 	return &Transport{Name: name, RoundTripper: transport}
 }
