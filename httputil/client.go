@@ -20,14 +20,15 @@ var (
 )
 
 type Transport struct {
-	Name string
+	Name  string
+	Debug bool
 	http.RoundTripper
 }
 
 func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	//ctx := injectRequest(r.Context(), r)
 	//r2 := r.WithContext(ctx)
-	if !env.IsStaging() {
+	if !env.IsStaging() && !t.Debug {
 		return t.RoundTripper.RoundTrip(r)
 	}
 
@@ -67,11 +68,11 @@ func recordRequest(ctx context.Context, span trace.Span, req *http.Request) {
 	}
 }
 
-func NewDefaultHttpClient(name string) *http.Client {
-	return &http.Client{Transport: NewTransport(name, http.DefaultTransport)}
+func NewDefaultHttpClient(name string, debug bool) *http.Client {
+	return &http.Client{Transport: NewTransport(name, debug, http.DefaultTransport)}
 }
 
-func NewTransport(name string, base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
+func NewTransport(name string, debug bool, base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
 	opts = append([]otelhttp.Option{
 		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
 			return name + " OTEL HTTP " + r.Method
@@ -81,5 +82,5 @@ func NewTransport(name string, base http.RoundTripper, opts ...otelhttp.Option) 
 		base,
 		opts...,
 	)
-	return &Transport{Name: name, RoundTripper: transport}
+	return &Transport{Name: name, Debug: debug, RoundTripper: transport}
 }

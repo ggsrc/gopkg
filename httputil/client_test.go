@@ -9,7 +9,7 @@ import (
 )
 
 func TestHttpClient(t *testing.T) {
-	httpClient := httputil.NewDefaultHttpClient("test")
+	httpClient := httputil.NewDefaultHttpClient("test", true)
 	get, err := httpClient.Get("https://graphigo.prd.galaxy.eco/")
 	assert.NoError(t, err)
 	assert.NotNil(t, get)
