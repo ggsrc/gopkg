@@ -32,32 +32,37 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 	}
 
 	ctx, span := tracer.Start(r.Context(), t.Name+" "+r.Method)
+	recordRequest(ctx, span, r)
+
 	res, err := t.RoundTripper.RoundTrip(r)
 	if err != nil {
 		span.RecordError(err)
-		recordRequestAndResponse(ctx, span, r, res)
+		recordResponse(ctx, span, res)
 		span.End()
 		return res, err
 	}
-	recordRequestAndResponse(ctx, span, r, res)
+	recordResponse(ctx, span, res)
 	span.End()
 	return res, err
 }
 
-func recordRequestAndResponse(ctx context.Context, span trace.Span, req *http.Request, res *http.Response) {
-	if req != nil {
-		reqBody, err := readRequestBody(req)
-		if err != nil {
-			log.Ctx(ctx).Error().Err(err).Msg("failed to read request body")
-		}
-		span.SetAttributes(attribute.String("http.request.body", reqBody))
-	}
+func recordResponse(ctx context.Context, span trace.Span, res *http.Response) {
 	if res != nil {
 		resBody, err := readResBody(res)
 		if err != nil {
 			log.Ctx(ctx).Error().Err(err).Msg("failed to read response body")
 		}
 		span.SetAttributes(attribute.String("http.response.body", resBody))
+	}
+}
+
+func recordRequest(ctx context.Context, span trace.Span, req *http.Request) {
+	if req != nil {
+		reqBody, err := readRequestBody(req)
+		if err != nil {
+			log.Ctx(ctx).Error().Err(err).Msg("failed to read request body")
+		}
+		span.SetAttributes(attribute.String("http.request.body", reqBody))
 	}
 }
 
@@ -68,7 +73,7 @@ func NewDefaultHttpClient(name string) *http.Client {
 func NewTransport(name string, base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
 	opts = append([]otelhttp.Option{
 		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
-			return name + "HTTP " + r.Method
+			return name + " HTTP " + r.Method
 		}),
 	}, opts...)
 	transport := otelhttp.NewTransport(
