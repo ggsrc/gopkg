@@ -63,6 +63,7 @@ func recordRequest(ctx context.Context, span trace.Span, req *http.Request) {
 			log.Ctx(ctx).Error().Err(err).Msg("failed to read request body")
 		}
 		span.SetAttributes(attribute.String("http.request.body", reqBody))
+		span.SetAttributes(attribute.String("http.url", req.URL.String()))
 	}
 }
 
