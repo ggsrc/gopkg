@@ -31,7 +31,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 		return t.RoundTripper.RoundTrip(r)
 	}
 
-	ctx, span := tracer.Start(r.Context(), t.Name+" "+r.Method)
+	ctx, span := tracer.Start(r.Context(), t.Name+" HTTP "+r.Method)
 	recordRequest(ctx, span, r)
 
 	res, err := t.RoundTripper.RoundTrip(r)
@@ -74,7 +74,7 @@ func NewDefaultHttpClient(name string) *http.Client {
 func NewTransport(name string, base http.RoundTripper, opts ...otelhttp.Option) http.RoundTripper {
 	opts = append([]otelhttp.Option{
 		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
-			return name + " HTTP " + r.Method
+			return name + " OTEL HTTP " + r.Method
 		}),
 	}, opts...)
 	transport := otelhttp.NewTransport(
