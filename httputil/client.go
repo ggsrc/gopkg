@@ -62,7 +62,11 @@ func recordRequestAndResponse(ctx context.Context, span trace.Span, req *http.Re
 	}
 }
 
-func DefaultHttpClient(name string) *http.Client {
+func NewHttpClient(name string) *http.Client {
+	return &http.Client{Transport: NewNewTransport(name)}
+}
+
+func NewNewTransport(name string) http.RoundTripper {
 	transport := otelhttp.NewTransport(
 		http.DefaultTransport,
 		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
@@ -72,5 +76,5 @@ func DefaultHttpClient(name string) *http.Client {
 			return &httptrace.ClientTrace{}
 		}),
 	)
-	return &http.Client{Transport: &Transport{Name: name, RoundTripper: transport}}
+	return &Transport{Name: name, RoundTripper: transport}
 }
