@@ -2,11 +2,12 @@ package httputil
 
 import (
 	"context"
+	"net/http"
+
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"net/http"
 
 	"github.com/ggsrc/gopkg/env"
 	"github.com/ggsrc/gopkg/zerolog/log"
