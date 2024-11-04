@@ -10,7 +10,7 @@ APPNAME=$(NAME)_test
 
 lint:
 	@echo "--> Running linter"
-	@go list -f '{{.Dir}}' -m | xargs -I {} golangci-lint run {}/... --verbose
+	@go list -f '{{.Dir}}' -m | xargs -I {} golangci-lint run {}/...
 
 lint-fix:
 	@echo "--> Running linter auto fix"

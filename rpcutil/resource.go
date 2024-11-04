@@ -103,19 +103,19 @@ func (r *Resource) Start(ctx context.Context) {
 	select {
 	case osSig := <-sig:
 		log.Error().Msgf("received signal %s; shutting down", osSig)
-		r.ShutDown(ctx)
+		r.ShutDown(context.Background())
 	case err := <-healthErrCh:
 		log.Error().Err(err).Msg("health server error; shutting down")
-		r.ShutDown(ctx)
+		r.ShutDown(context.Background())
 	case err := <-metricErrCh:
 		log.Error().Err(err).Msg("metricer server error; shutting down")
-		r.ShutDown(ctx)
+		r.ShutDown(context.Background())
 	case err := <-grpcErrCh:
 		log.Error().Err(err).Msg("grpc server error; shutting down")
-		r.ShutDown(ctx)
+		r.ShutDown(context.Background())
 	case err := <-profilingErrCh:
 		log.Error().Err(err).Msg("profiling server error; shutting down")
-		r.ShutDown(ctx)
+		r.ShutDown(context.Background())
 	}
 }
 
