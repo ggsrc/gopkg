@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/kelseyhightower/envconfig"
@@ -10,6 +9,7 @@ import (
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/encoding/gzip"
 
 	grpcinterceptor "github.com/ggsrc/gopkg/interceptor/grpc"
 )
@@ -50,6 +50,7 @@ func (c *Client) Dial(ctx context.Context, addr string, opts ...grpc.DialOption)
 	}
 
 	defaultOpts := []grpc.DialOption{
+		grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)),
 		grpc.WithUnaryInterceptor(chainUnaryClient(
 			grpcinterceptor.SentryUnaryClientInterceptor(c.conf.RavenDSN),
 			grpcinterceptor.ContextUnaryClientInterceptor(),
