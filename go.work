@@ -7,12 +7,13 @@ use (
 	goodns
 	grpc
 	health
+	httputil
 	interceptor
+	mctx
 	metric
+	otel
 	profiling
 	rpcutil
 	utils
 	zerolog
-	mctx
-	httputil
 )
