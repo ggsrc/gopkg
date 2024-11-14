@@ -11,6 +11,11 @@ import (
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 )
 
+const (
+	SchemeHttp = "http"
+	SchemeUnix = "unix"
+)
+
 func configureLogging(ctx context.Context, client *client, conf *config) {
 	if conf.loggerProvider != nil {
 		global.SetLoggerProvider(conf.loggerProvider)
@@ -56,7 +61,7 @@ func otlpLoggerOptions(conf *config) []otlploghttp.Option {
 	if conf.tlsConf != nil {
 		options = append(options, otlploghttp.WithTLSClientConfig(conf.tlsConf))
 	} else {
-		if u != nil && (u.Scheme == "http" || u.Scheme == "unix") {
+		if u != nil && (u.Scheme == SchemeHttp || u.Scheme == SchemeUnix) {
 			options = append(options, otlploghttp.WithInsecure())
 		}
 	}

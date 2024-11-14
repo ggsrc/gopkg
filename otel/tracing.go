@@ -46,7 +46,7 @@ func configureTracing(ctx context.Context, client *client, conf *config) {
 	if conf.prettyPrint {
 		exporter, err := stdouttrace.New(stdouttrace.WithPrettyPrint())
 		if err != nil {
-			log.Printf(err.Error())
+			log.Warn().Err(err).Msg("stdouttrace.New failed")
 		} else {
 			provider.RegisterSpanProcessor(sdktrace.NewSimpleSpanProcessor(exporter))
 		}
@@ -103,7 +103,7 @@ func newIDGenerator() *idGenerator {
 	gen := &idGenerator{}
 	var rngSeed int64
 	_ = binary.Read(cryptorand.Reader, binary.LittleEndian, &rngSeed)
-	gen.randSource = rand.New(rand.NewSource(rngSeed))
+	gen.randSource = rand.New(rand.NewSource(rngSeed)) //nolint:gosec
 	return gen
 }
 
@@ -117,11 +117,11 @@ func (gen *idGenerator) NewIDs(ctx context.Context) (trace.TraceID, trace.SpanID
 	defer gen.Unlock()
 
 	tid := trace.TraceID{}
-	binary.BigEndian.PutUint64(tid[:8], uint64(unixNano))
+	binary.BigEndian.PutUint64(tid[:8], uint64(unixNano)) //nolint:gosec
 	_, _ = gen.randSource.Read(tid[8:])
 
 	sid := trace.SpanID{}
-	binary.BigEndian.PutUint32(sid[:4], uint32(unixNano/spanIDPrec))
+	binary.BigEndian.PutUint32(sid[:4], uint32(unixNano/spanIDPrec)) //nolint:gosec
 	_, _ = gen.randSource.Read(sid[4:])
 
 	return tid, sid
@@ -135,7 +135,7 @@ func (gen *idGenerator) NewSpanID(ctx context.Context, traceID trace.TraceID) tr
 	defer gen.Unlock()
 
 	sid := trace.SpanID{}
-	binary.BigEndian.PutUint32(sid[:4], uint32(unixNano/spanIDPrec))
+	binary.BigEndian.PutUint32(sid[:4], uint32(unixNano/spanIDPrec)) //nolint:gosec
 	_, _ = gen.randSource.Read(sid[4:])
 
 	return sid

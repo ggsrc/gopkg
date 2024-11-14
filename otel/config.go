@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ggsrc/gopkg/env"
 	"github.com/rs/zerolog/log"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -19,6 +18,8 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.21.0"
+
+	"github.com/ggsrc/gopkg/env"
 )
 
 type config struct {
