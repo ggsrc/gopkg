@@ -221,7 +221,11 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 
 	// init db
 	if o.InitWpgx {
-		db, err := db_wpgx.InitDB(ctx, DefaultInitDBTimeout)
+		opts := []db_wpgx.ConfigOption{}
+		if o.WPGXBeforeAcquire != nil {
+			opts = append(opts, db_wpgx.WithBeforeAcquire(o.WPGXBeforeAcquire))
+		}
+		db, err := db_wpgx.InitDB(ctx, DefaultInitDBTimeout, opts...)
 		if err != nil {
 			return nil, err
 		}

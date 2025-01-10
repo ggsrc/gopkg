@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
+	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc"
 
 	gg_grpc "github.com/ggsrc/gopkg/grpc"
@@ -27,7 +28,9 @@ type RpcInitHelperOptions struct {
 	Debug   bool
 	AppName string
 
-	InitWpgx        bool
+	InitWpgx          bool
+	WPGXBeforeAcquire func(context.Context, *pgx.Conn) bool // often used to load custom types
+
 	InitCache       bool
 	InitHealthCheck bool
 	Checkable       []health.HealthCheckable
@@ -44,6 +47,12 @@ type RpcInitHelperOptions struct {
 	CronJobOpt  []gocron.SchedulerOption
 
 	CustomResourceOps []CustomResource
+}
+
+func WithWPGXBeforeAcquire(f func(context.Context, *pgx.Conn) bool) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.WPGXBeforeAcquire = f
+	}
 }
 
 func WithAppName(appName string) RpcInitHelperOption {
