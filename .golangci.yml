@@ -112,3 +112,4 @@ linters-settings:
     # Default: ["newLine"]
     section-separators:
       - newLine
+    custom-order: true
