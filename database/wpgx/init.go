@@ -8,10 +8,10 @@ import (
 	"github.com/stumble/wpgx"
 )
 
-func InitDB(ctx context.Context, timeout time.Duration) (*wpgx.Pool, error) {
+func InitDB(ctx context.Context, timeout time.Duration, configOpts ...ConfigOption) (*wpgx.Pool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	pool, err := NewWPGXPool(ctx, "postgres")
+	pool, err := NewWPGXPool(ctx, "postgres", configOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create db connection pool: %w", err)
 	}
