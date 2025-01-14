@@ -18,15 +18,16 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/database/cache v0.0.0-20241023073304-d2bc50fff59d
-	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20241023073304-d2bc50fff59d
-	github.com/ggsrc/gopkg/env v0.0.0-20240927072830-4bdb7b30cd79
-	github.com/ggsrc/gopkg/grpc v0.0.0-20241024103720-270bf40663d8
-	github.com/ggsrc/gopkg/health v0.0.0-20240927070610-206992d360f9
-	github.com/ggsrc/gopkg/metric v0.0.0-20240927070610-206992d360f9
-	github.com/ggsrc/gopkg/profiling v0.0.0-20240927070610-206992d360f9
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb
+	github.com/ggsrc/gopkg/database/cache v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/env v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/grpc v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/health v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/metric v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/profiling v0.0.0-20250110085348-9283cf95374b
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20250110085348-9283cf95374b
 	github.com/go-co-op/gocron/v2 v2.11.0
+	github.com/jackc/pgx/v5 v5.6.0
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/stumble/dcache v0.3.0
 	github.com/stumble/wpgx v0.3.1
@@ -48,6 +49,8 @@ require (
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/coocood/freecache v1.2.4 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
+	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/getsentry/sentry-go v0.29.0 // indirect
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7 // indirect
 	github.com/ggsrc/gopkg/interceptor v0.0.0-20241024103720-270bf40663d8 // indirect
@@ -63,7 +66,6 @@ require (
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.22.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
-	github.com/jackc/pgx/v5 v5.6.0 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.4.0 // indirect
@@ -72,6 +74,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
+	github.com/maypok86/otter v1.2.3 // indirect
 	github.com/miekg/dns v1.1.62 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
