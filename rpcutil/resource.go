@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
+	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/client"
+	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/worker"
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
@@ -41,6 +43,8 @@ type Resource struct {
 	HealthChecker *health.Server
 	Metricer      *metric.Server
 	Profiling     *profiling.Server
+	HatchetCli    hatchet_cli.Client
+	HatchetWorker *hatchet_worker.Worker
 
 	CustomResources []CustomResource
 }
@@ -59,7 +63,8 @@ func (r *Resource) Start(ctx context.Context) {
 
 	var wg sync.WaitGroup
 
-	grpcErrCh, healthErrCh, metricErrCh, profilingErrCh :=
+	grpcErrCh, healthErrCh, metricErrCh, profilingErrCh, hatchetWorkerErrCh :=
+		make(chan error, 1),
 		make(chan error, 1),
 		make(chan error, 1),
 		make(chan error, 1),
@@ -97,6 +102,19 @@ func (r *Resource) Start(ctx context.Context) {
 		}
 	}()
 
+	var hatchetWorkerCleanUp func() error
+
+	go func() {
+		if r.HatchetWorker != nil {
+			log.Warn().Msg("HatchetCli start")
+			var err error
+			hatchetWorkerCleanUp, err = r.HatchetWorker.Start()
+			if err != nil {
+				hatchetWorkerErrCh <- err
+			}
+		}
+	}()
+
 	// Monitor system signal like SIGINT and SIGTERM
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -116,6 +134,12 @@ func (r *Resource) Start(ctx context.Context) {
 	case err := <-profilingErrCh:
 		log.Error().Err(err).Msg("profiling server error; shutting down")
 		r.ShutDown(context.Background())
+	case err := <-hatchetWorkerErrCh:
+		log.Error().Err(err).Msg("hatchet worker error; shutting down")
+		r.ShutDown(context.Background())
+	}
+	if hatchetWorkerCleanUp != nil {
+		_ = hatchetWorkerCleanUp()
 	}
 }
 
@@ -265,6 +289,18 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 	// init profiling
 	if o.InitProfiling {
 		myResource.Profiling = profiling.InitProfiler(o.ProfilingConf)
+	}
+	if o.InitHatchetCli {
+		hatchetCli, err := hatchet_cli.New(o.HatchetCliOpts...)
+		if err != nil {
+			return nil, err
+		}
+		myResource.HatchetCli = hatchetCli
+		worker, err := hatchet_worker.NewWorker(o.HatchetWorkerOpts...)
+		if err != nil {
+			return nil, err
+		}
+		myResource.HatchetWorker = worker
 	}
 	if o.CustomResourceOps != nil {
 		myResource.CustomResources = o.CustomResourceOps
