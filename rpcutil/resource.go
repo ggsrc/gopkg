@@ -296,6 +296,7 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 			return nil, err
 		}
 		myResource.HatchetCli = hatchetCli
+		o.HatchetWorkerOpts = append(o.HatchetWorkerOpts, hatchet_worker.WithClient(hatchetCli))
 		worker, err := hatchet_worker.NewWorker(o.HatchetWorkerOpts...)
 		if err != nil {
 			return nil, err
