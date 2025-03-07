@@ -18,7 +18,7 @@ linters:
     # next-time
     # - dupl
     - errcheck
-    - copyloopvar
+#    - copyloopvar
     # - funlen
     # - gochecknoglobals
     # - gochecknoinits

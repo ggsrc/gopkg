@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
+	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/client"
+	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/worker"
 	"github.com/jackc/pgx/v5"
 	"google.golang.org/grpc"
 
@@ -45,6 +47,10 @@ type RpcInitHelperOptions struct {
 
 	InitCronJob bool
 	CronJobOpt  []gocron.SchedulerOption
+
+	InitHatchetCli    bool
+	HatchetCliOpts    []hatchet_cli.ClientOpt
+	HatchetWorkerOpts []hatchet_worker.WorkerOpt
 
 	CustomResourceOps []CustomResource
 }
@@ -91,6 +97,14 @@ func WithCronJobInit(opt ...gocron.SchedulerOption) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitCronJob = true
 		o.CronJobOpt = opt
+	}
+}
+
+func WithHatchetInit(clientOps []hatchet_cli.ClientOpt, workerOps []hatchet_worker.WorkerOpt) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.InitHatchetCli = true
+		o.HatchetCliOpts = clientOps
+		o.HatchetWorkerOpts = workerOps
 	}
 }
 
