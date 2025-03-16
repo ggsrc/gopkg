@@ -11,8 +11,8 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/env v0.0.0-20240927072830-4bdb7b30cd79
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20241024103720-270bf40663d8
+	github.com/ggsrc/gopkg/env v0.0.0-20250114093211-f3c4b0e13889
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20250307074235-8cbb76b9e006
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
@@ -32,9 +32,9 @@ require (
 	github.com/dolthub/maphash v0.1.0 // indirect
 	github.com/gammazero/deque v0.2.1 // indirect
 	github.com/getsentry/sentry-go v0.29.0 // indirect
-	github.com/ggsrc/gopkg/mctx v0.0.0-20241023073304-d2bc50fff59d // indirect
-	github.com/ggsrc/gopkg/utils v0.0.0-20241023073304-d2bc50fff59d // indirect
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20240927074458-8b290f89f1fb // indirect
+	github.com/ggsrc/gopkg/mctx v0.0.0-20250114093211-f3c4b0e13889 // indirect
+	github.com/ggsrc/gopkg/utils v0.0.0-20250114093211-f3c4b0e13889 // indirect
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20250114093211-f3c4b0e13889 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/golang/protobuf v1.5.4 // indirect

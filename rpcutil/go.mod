@@ -20,12 +20,12 @@ replace (
 require (
 	github.com/ggsrc/gopkg/database/cache v0.0.0-20250110085348-9283cf95374b
 	github.com/ggsrc/gopkg/database/wpgx v0.0.0-20250110085348-9283cf95374b
-	github.com/ggsrc/gopkg/env v0.0.0-20250114093211-f3c4b0e13889
+	github.com/ggsrc/gopkg/env v0.0.0-20250307074235-8cbb76b9e006
 	github.com/ggsrc/gopkg/grpc v0.0.0-20250110085348-9283cf95374b
 	github.com/ggsrc/gopkg/health v0.0.0-20250110085348-9283cf95374b
 	github.com/ggsrc/gopkg/metric v0.0.0-20250110085348-9283cf95374b
 	github.com/ggsrc/gopkg/profiling v0.0.0-20250110085348-9283cf95374b
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20250114093211-f3c4b0e13889
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20250307074235-8cbb76b9e006
 	github.com/go-co-op/gocron/v2 v2.16.0
 	github.com/hatchet-dev/hatchet v0.54.11
 	github.com/jackc/pgx/v5 v5.7.1
@@ -62,9 +62,9 @@ require (
 	github.com/getkin/kin-openapi v0.129.0 // indirect
 	github.com/getsentry/sentry-go v0.31.1 // indirect
 	github.com/ggsrc/gopkg/goodns v0.0.0-20240701121102-34284860bec7 // indirect
-	github.com/ggsrc/gopkg/interceptor v0.0.0-20241024103720-270bf40663d8 // indirect
-	github.com/ggsrc/gopkg/mctx v0.0.0-20250114093211-f3c4b0e13889 // indirect
-	github.com/ggsrc/gopkg/utils v0.0.0-20250114093211-f3c4b0e13889 // indirect
+	github.com/ggsrc/gopkg/interceptor v0.0.0-20250307074235-8cbb76b9e006 // indirect
+	github.com/ggsrc/gopkg/mctx v0.0.0-20250307074235-8cbb76b9e006 // indirect
+	github.com/ggsrc/gopkg/utils v0.0.0-20250307074235-8cbb76b9e006 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-openapi/jsonpointer v0.21.0 // indirect

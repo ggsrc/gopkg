@@ -13,10 +13,10 @@ require (
 	github.com/bytedance/gopkg v0.1.1
 	github.com/bytedance/sonic v1.12.3
 	github.com/getsentry/sentry-go v0.29.0
-	github.com/ggsrc/gopkg/env v0.0.0-20250114093211-f3c4b0e13889
-	github.com/ggsrc/gopkg/mctx v0.0.0-20250114093211-f3c4b0e13889
-	github.com/ggsrc/gopkg/utils v0.0.0-20250114093211-f3c4b0e13889
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20250114093211-f3c4b0e13889
+	github.com/ggsrc/gopkg/env v0.0.0-20250307074235-8cbb76b9e006
+	github.com/ggsrc/gopkg/mctx v0.0.0-20250307074235-8cbb76b9e006
+	github.com/ggsrc/gopkg/utils v0.0.0-20250307074235-8cbb76b9e006
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20250307074235-8cbb76b9e006
 	github.com/jinzhu/copier v0.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/maypok86/otter v1.2.3
