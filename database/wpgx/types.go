@@ -8,7 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
-	"github.com/stumble/wpgx"
 )
 
 var (
@@ -49,13 +48,11 @@ func LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
 	for _, t := range ts {
 		// reuse type if already registered in conn
 		if _, ok := conn.TypeMap().TypeForName(t); ok {
-			log.Debug().Msgf("type %s already loaded", t)
 			continue
 		}
 		if pt, ok := ptMap[t]; ok {
 			// reuse type if already loaded in ptMap
 			conn.TypeMap().RegisterType(pt)
-			log.Debug().Msgf("type %s already loaded", t)
 		} else {
 			var err error
 			// load type from database
@@ -69,8 +66,4 @@ func LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
 		}
 	}
 	return true
-}
-
-func LoadTypesBeforeAcquire(c *wpgx.Config) {
-	c.BeforeAcquire = LoadTypes
 }
