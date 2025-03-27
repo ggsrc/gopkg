@@ -55,12 +55,6 @@ func (r *Resource) Start(ctx context.Context) {
 		r.CronScheduler.Start()
 	}
 
-	for _, res := range r.CustomResources {
-		if err := res.Start(ctx); err != nil {
-			log.Ctx(ctx).Error().Err(err).Msgf("failed to start custom resource %v", res)
-		}
-	}
-
 	var wg sync.WaitGroup
 
 	grpcErrCh, healthErrCh, metricErrCh, profilingErrCh, hatchetWorkerErrCh :=
@@ -122,6 +116,14 @@ func (r *Resource) Start(ctx context.Context) {
 	}
 
 	wg.Wait()
+
+	for _, res := range r.CustomResources {
+		if err := res.Start(ctx); err != nil {
+			log.Ctx(ctx).Error().Err(err).Msgf("failed to start custom resource %v", res)
+			r.ShutDown(context.Background())
+			return
+		}
+	}
 
 	// Monitor system signal like SIGINT and SIGTERM
 	sig := make(chan os.Signal, 1)
