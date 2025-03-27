@@ -70,50 +70,58 @@ func (r *Resource) Start(ctx context.Context) {
 		make(chan error, 1),
 		make(chan error, 1)
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if r.GrpcServer != nil {
+	if r.GrpcServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			log.Warn().Msg("GRPC server start")
 			grpcErrCh <- r.GrpcServer.Start()
-		}
-	}()
+		}()
+	}
 
-	go func() {
-		if r.HealthChecker != nil {
+	if r.HealthChecker != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			log.Warn().Msg("HealthCheck server start")
 			healthErrCh <- r.HealthChecker.Start()
-		}
-	}()
+		}()
+	}
 
-	go func() {
-		if r.Metricer != nil {
+	if r.Metricer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			log.Warn().Msg("Metric server start")
 			metricErrCh <- r.Metricer.Start()
-		}
-	}()
+		}()
+	}
 
-	go func() {
-		if r.Profiling != nil {
+	if r.Profiling != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			log.Warn().Msg("Profiling server start")
-			if err := r.Profiling.Start(); err != nil {
-				profilingErrCh <- err
-			}
-		}
-	}()
+			profilingErrCh <- r.Profiling.Start()
+		}()
+	}
 
 	var hatchetWorkerCleanUp func() error
 
-	go func() {
-		if r.HatchetWorker != nil {
-			log.Warn().Msg("HatchetCli start")
+	if r.HatchetWorker != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Warn().Msg("HatchetWorker start")
 			var err error
 			hatchetWorkerCleanUp, err = r.HatchetWorker.Start()
 			if err != nil {
 				hatchetWorkerErrCh <- err
 			}
-		}
-	}()
+		}()
+	}
+
+	wg.Wait()
 
 	// Monitor system signal like SIGINT and SIGTERM
 	sig := make(chan os.Signal, 1)
@@ -149,25 +157,26 @@ func (r *Resource) ShutDown(ctx context.Context) {
 
 	// shutdown services concurrently and wait for all to finish, e.g. grpc server, cronjob, etc.
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		// shutdown grpc server
-		if r.GrpcServer != nil {
+
+	if r.GrpcServer != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			if err := r.GrpcServer.Shutdown(ctx); err != nil {
 				log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown grpc server")
 			}
-		}
-	}()
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if r.CronScheduler != nil {
+		}()
+	}
+
+	if r.CronScheduler != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 			if err := r.CronScheduler.Shutdown(); err != nil {
 				log.Ctx(ctx).Error().Err(err).Msg("failed to shutdown cronjob")
 			}
-		}
-	}()
+		}()
+	}
 
 	wg.Wait()
 	for _, res := range r.CustomResources {
