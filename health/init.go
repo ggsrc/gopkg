@@ -9,6 +9,6 @@ func InitHealthCheck(hc ...HealthCheckable) *Server {
 	c := Config{}
 	envconfig.MustProcess("healthcheck", &c)
 	log.Warn().Msgf("healthcheck Config: %+v", c)
-	checker := New(&c, hc...)
+	checker := New(&c, nil, hc...)
 	return checker
 }

@@ -14,6 +14,11 @@ import (
 	"github.com/stumble/wpgx"
 )
 
+type HttpRouter interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+	ServeHTTP(writer http.ResponseWriter, request *http.Request)
+}
+
 type Server struct {
 	conf      *Config
 	hooks     []Checkable
@@ -24,6 +29,8 @@ type Server struct {
 
 	ready bool
 	alive bool
+
+	httpRouter HttpRouter
 }
 
 type HealthCheckable interface {
@@ -40,7 +47,7 @@ type Config struct {
 	Alive         bool          `default:"true"`
 }
 
-func New(conf *Config, hc ...HealthCheckable) *Server {
+func New(conf *Config, httpRouter HttpRouter, hc ...HealthCheckable) *Server {
 	if conf == nil {
 		conf = &Config{}
 		envconfig.MustProcess("healthcheck", conf)
@@ -50,10 +57,11 @@ func New(conf *Config, hc ...HealthCheckable) *Server {
 		hooks = append(hooks, h.OK)
 	}
 	s := &Server{
-		conf:  conf,
-		hooks: hooks,
-		ready: conf.Ready,
-		alive: conf.Alive,
+		conf:       conf,
+		hooks:      hooks,
+		ready:      conf.Ready,
+		alive:      conf.Alive,
+		httpRouter: httpRouter,
 	}
 	go s.start()
 	return s
@@ -124,15 +132,22 @@ func (s *Server) livenessHandler() func(http.ResponseWriter, *http.Request) {
 }
 
 func (s *Server) Start() error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/health/ready", s.readinessHandler())
-	mux.HandleFunc("/health/alive", s.livenessHandler())
-	healthServer := &http.Server{
+	if s.httpRouter == nil {
+		var mux = http.NewServeMux()
+		mux.HandleFunc("/health/ready", s.readinessHandler())
+		mux.HandleFunc("/health/alive", s.livenessHandler())
+		s.httpRouter = mux
+	}
+	httpServer := &http.Server{
 		Addr:              fmt.Sprintf(":%d", s.conf.Port),
-		Handler:           mux,
+		Handler:           s.httpRouter,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	return healthServer.ListenAndServe()
+	return httpServer.ListenAndServe()
+}
+
+func (s *Server) Router() HttpRouter {
+	return s.httpRouter
 }
 
 // Stop makes the service not ready and not lively
