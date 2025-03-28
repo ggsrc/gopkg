@@ -55,8 +55,6 @@ func (r *Resource) Start(ctx context.Context) {
 		r.CronScheduler.Start()
 	}
 
-	var wg sync.WaitGroup
-
 	grpcErrCh, healthErrCh, metricErrCh, profilingErrCh, hatchetWorkerErrCh :=
 		make(chan error, 1),
 		make(chan error, 1),
@@ -65,36 +63,28 @@ func (r *Resource) Start(ctx context.Context) {
 		make(chan error, 1)
 
 	if r.GrpcServer != nil {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			log.Warn().Msg("GRPC server start")
 			grpcErrCh <- r.GrpcServer.Start()
 		}()
 	}
 
 	if r.HealthChecker != nil {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			log.Warn().Msg("HealthCheck server start")
 			healthErrCh <- r.HealthChecker.Start()
 		}()
 	}
 
 	if r.Metricer != nil {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			log.Warn().Msg("Metric server start")
 			metricErrCh <- r.Metricer.Start()
 		}()
 	}
 
 	if r.Profiling != nil {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			log.Warn().Msg("Profiling server start")
 			profilingErrCh <- r.Profiling.Start()
 		}()
@@ -103,9 +93,7 @@ func (r *Resource) Start(ctx context.Context) {
 	var hatchetWorkerCleanUp func() error
 
 	if r.HatchetWorker != nil {
-		wg.Add(1)
 		go func() {
-			defer wg.Done()
 			log.Warn().Msg("HatchetWorker start")
 			var err error
 			hatchetWorkerCleanUp, err = r.HatchetWorker.Start()
@@ -115,7 +103,7 @@ func (r *Resource) Start(ctx context.Context) {
 		}()
 	}
 
-	wg.Wait()
+	time.Sleep(1 * time.Second)
 
 	for _, res := range r.CustomResources {
 		if err := res.Start(ctx); err != nil {
