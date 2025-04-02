@@ -8,6 +8,7 @@ import (
 	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/client"
 	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/worker"
 	"github.com/jackc/pgx/v5"
+	"github.com/posthog/posthog-go"
 	"google.golang.org/grpc"
 
 	gg_grpc "github.com/ggsrc/gopkg/grpc"
@@ -51,6 +52,10 @@ type RpcInitHelperOptions struct {
 	InitHatchetCli    bool
 	HatchetCliOpts    []hatchet_cli.ClientOpt
 	HatchetWorkerOpts []hatchet_worker.WorkerOpt
+
+	InitPosthogCli bool
+	PosthogApiKey  string
+	PosthogConf    *posthog.Config
 
 	CustomResourceOps []CustomResource
 }
@@ -125,6 +130,14 @@ func WithProfilingInit(conf *profiling.Config) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitProfiling = true
 		o.ProfilingConf = conf
+	}
+}
+
+func WithPosthogInit(posthogKey string, conf *posthog.Config) RpcInitHelperOption {
+	return func(o *RpcInitHelperOptions) {
+		o.InitPosthogCli = true
+		o.PosthogApiKey = posthogKey
+		o.PosthogConf = conf
 	}
 }
 
