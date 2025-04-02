@@ -29,6 +29,8 @@ require (
 	github.com/go-co-op/gocron/v2 v2.16.0
 	github.com/hatchet-dev/hatchet v0.54.11
 	github.com/jackc/pgx/v5 v5.7.1
+	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/posthog/posthog-go v1.4.5
 	github.com/redis/go-redis/v9 v9.6.1
 	github.com/stumble/dcache v0.3.0
 	github.com/stumble/wpgx v0.3.1
@@ -88,7 +90,6 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jonboulle/clockwork v0.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
-	github.com/kelseyhightower/envconfig v1.4.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/labstack/echo/v4 v4.13.3 // indirect

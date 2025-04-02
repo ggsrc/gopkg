@@ -11,6 +11,8 @@ import (
 	"github.com/go-co-op/gocron/v2"
 	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/client"
 	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/worker"
+	"github.com/kelseyhightower/envconfig"
+	"github.com/posthog/posthog-go"
 	"github.com/redis/go-redis/v9"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
@@ -45,6 +47,8 @@ type Resource struct {
 	Profiling     *profiling.Server
 	HatchetCli    hatchet_cli.Client
 	HatchetWorker *hatchet_worker.Worker
+
+	PostHogCli posthog.Client
 
 	CustomResources []CustomResource
 }
@@ -188,6 +192,11 @@ func (r *Resource) ShutDown(ctx context.Context) {
 			log.Ctx(ctx).Error().Err(err).Msg("failed to close redis connection")
 		}
 	}
+	if r.PostHogCli != nil {
+		if err := r.PostHogCli.Close(); err != nil {
+			log.Ctx(ctx).Error().Err(err).Msg("failed to close posthog connection")
+		}
+	}
 	// close health check
 	if r.HealthChecker != nil {
 		r.HealthChecker.Stop()
@@ -301,6 +310,21 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 			return nil, err
 		}
 		myResource.HatchetWorker = worker
+	}
+	if o.InitPosthogCli {
+		conf := o.PosthogConf
+		if conf == nil {
+			conf = &posthog.Config{}
+			envconfig.MustProcess("posthog", conf)
+		}
+		if o.PosthogApiKey == "" {
+			o.PosthogApiKey = os.Getenv("POSTHOG_APIKEY")
+		}
+		posthogCli, err := posthog.NewWithConfig(o.PosthogApiKey, *conf)
+		if err != nil {
+			return nil, err
+		}
+		myResource.PostHogCli = posthogCli
 	}
 	if o.CustomResourceOps != nil {
 		myResource.CustomResources = o.CustomResourceOps
