@@ -10,17 +10,14 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var (
-	ptMap   = map[string]*pgtype.Type{}
-	timeout = 5 * time.Second // default timeout
-
-	ts []string
-)
+const defaultTimeout = 5 * time.Second
 
 type TypeLoaderParam struct {
 	Timeout time.Duration `default:"5s"`
 	Types   []string
 }
+
+var defaultLoader *Loader
 
 func InitTypeLoader(p *TypeLoaderParam) {
 	if p == nil {
@@ -29,28 +26,53 @@ func InitTypeLoader(p *TypeLoaderParam) {
 		log.Info().Msgf("type loader config: %+v", cfg)
 		p = &cfg
 	}
+	defaultLoader = NewLoader(p)
+}
+
+func LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
+	if defaultLoader == nil {
+		// no type loader, skip
+		log.Error().Msg("type loader not initialized")
+		return true
+	}
+	return defaultLoader.LoadTypes(ctx, conn)
+}
+
+func NewLoader(p *TypeLoaderParam) *Loader {
+	l := Loader{
+		ptMap:   map[string]*pgtype.Type{},
+		timeout: defaultTimeout,
+	}
+	l.Reset()
 	if p.Timeout > 0 {
-		timeout = p.Timeout
+		l.timeout = p.Timeout
 	}
 	dedup := map[string]struct{}{}
 	for _, t := range p.Types {
 		dedup[t] = struct{}{}
 	}
-	ts = make([]string, 0, len(dedup))
+	l.ts = make([]string, 0, len(dedup))
 	for t := range dedup {
-		ts = append(ts, t)
+		l.ts = append(l.ts, t)
 	}
+	return &l
 }
 
-func LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+type Loader struct {
+	ptMap   map[string]*pgtype.Type
+	timeout time.Duration
+	ts      []string
+}
+
+func (l *Loader) LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
+	ctx, cancel := context.WithTimeout(ctx, l.timeout)
 	defer cancel()
-	for _, t := range ts {
+	for _, t := range l.ts {
 		// reuse type if already registered in conn
 		if _, ok := conn.TypeMap().TypeForName(t); ok {
 			continue
 		}
-		if pt, ok := ptMap[t]; ok {
+		if pt, ok := l.ptMap[t]; ok {
 			// reuse type if already loaded in ptMap
 			conn.TypeMap().RegisterType(pt)
 		} else {
@@ -62,8 +84,14 @@ func LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
 			}
 			log.Info().Msgf("loaded type %s", t)
 			conn.TypeMap().RegisterType(pt)
-			ptMap[t] = pt
+			l.ptMap[t] = pt
 		}
 	}
 	return true
+}
+
+func (l *Loader) Reset() {
+	l.ptMap = map[string]*pgtype.Type{}
+	l.ts = []string{}
+	l.timeout = defaultTimeout
 }
