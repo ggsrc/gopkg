@@ -38,6 +38,15 @@ func LoadTypes(ctx context.Context, conn *pgx.Conn) bool {
 	return defaultLoader.LoadTypes(ctx, conn)
 }
 
+func Reset() {
+	if defaultLoader == nil {
+		// no type loader, skip
+		log.Error().Msg("type loader not initialized")
+		return
+	}
+	defaultLoader.Reset()
+}
+
 func NewLoader(p *TypeLoaderParam) *Loader {
 	l := Loader{
 		ptMap:   map[string]*pgtype.Type{},
