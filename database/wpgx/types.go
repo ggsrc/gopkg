@@ -52,17 +52,16 @@ func NewLoader(p *TypeLoaderParam) *Loader {
 		ptMap:   map[string]*pgtype.Type{},
 		timeout: defaultTimeout,
 	}
-	l.Reset()
 	if p.Timeout > 0 {
 		l.timeout = p.Timeout
 	}
+	l.ts = make([]string, 0, len(p.Types))
 	dedup := map[string]struct{}{}
 	for _, t := range p.Types {
-		dedup[t] = struct{}{}
-	}
-	l.ts = make([]string, 0, len(dedup))
-	for t := range dedup {
-		l.ts = append(l.ts, t)
+		if _, ok := dedup[t]; !ok {
+			dedup[t] = struct{}{}
+			l.ts = append(l.ts, t)
+		}
 	}
 	return &l
 }
