@@ -24,6 +24,7 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 	if err != nil {
 		log.Err(err).Msg("sentry init failed, ignore it and continue...")
 	}
+
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp interface{}, err error) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -32,6 +33,8 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 					Err(fmt.Errorf("[panic] %v", r)).
 					Msgf("%s grpc server panic", strings.Trim(info.FullMethod, "/"))
 				err = fmt.Errorf("server Internal Error")
+				hub := sentry.CurrentHub()
+				hub.Recover(err)
 			}
 		}()
 
