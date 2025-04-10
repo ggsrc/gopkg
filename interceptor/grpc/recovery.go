@@ -34,7 +34,7 @@ func SentryUnaryServerInterceptor(ravenDSN string) grpc.UnaryServerInterceptor {
 					Msgf("%s grpc server panic", strings.Trim(info.FullMethod, "/"))
 				err = fmt.Errorf("server Internal Error")
 				hub := sentry.CurrentHub()
-				hub.Recover(err)
+				hub.Recover(r)
 			}
 		}()
 
