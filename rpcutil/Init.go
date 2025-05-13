@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
-	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/client"
-	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/worker"
+	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/v1"
+	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/v1/worker"
 	"github.com/jackc/pgx/v5"
 	"github.com/posthog/posthog-go"
 	"google.golang.org/grpc"
@@ -50,8 +50,8 @@ type RpcInitHelperOptions struct {
 	CronJobOpt  []gocron.SchedulerOption
 
 	InitHatchetCli    bool
-	HatchetCliOpts    []hatchet_cli.ClientOpt
-	HatchetWorkerOpts []hatchet_worker.WorkerOpt
+	HatchetCliOpts    []hatchet_cli.Config
+	HatchetWorkerOpts hatchet_worker.WorkerOpts
 
 	InitPosthogCli bool
 	PosthogApiKey  string
@@ -105,7 +105,7 @@ func WithCronJobInit(opt ...gocron.SchedulerOption) RpcInitHelperOption {
 	}
 }
 
-func WithHatchetInit(clientOps []hatchet_cli.ClientOpt, workerOps []hatchet_worker.WorkerOpt) RpcInitHelperOption {
+func WithHatchetInit(clientOps []hatchet_cli.Config, workerOps hatchet_worker.WorkerOpts) RpcInitHelperOption {
 	return func(o *RpcInitHelperOptions) {
 		o.InitHatchetCli = true
 		o.HatchetCliOpts = clientOps

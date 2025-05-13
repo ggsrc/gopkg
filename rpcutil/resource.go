@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
-	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/client"
-	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/worker"
+	hatchet_cli "github.com/hatchet-dev/hatchet/pkg/v1"
+	hatchet_worker "github.com/hatchet-dev/hatchet/pkg/v1/worker"
 	"github.com/kelseyhightower/envconfig"
 	"github.com/posthog/posthog-go"
 	"github.com/redis/go-redis/v9"
@@ -45,8 +45,8 @@ type Resource struct {
 	HealthChecker *health.Server
 	Metricer      *metric.Server
 	Profiling     *profiling.Server
-	HatchetCli    hatchet_cli.Client
-	HatchetWorker *hatchet_worker.Worker
+	HatchetCli    hatchet_cli.HatchetClient
+	HatchetWorker hatchet_worker.Worker
 
 	PostHogCli posthog.Client
 
@@ -299,13 +299,12 @@ func NewResource(ctx context.Context, o RpcInitHelperOptions) (*Resource, error)
 		myResource.Profiling = profiling.InitProfiler(o.ProfilingConf)
 	}
 	if o.InitHatchetCli {
-		hatchetCli, err := hatchet_cli.New(o.HatchetCliOpts...)
+		hatchetCli, err := hatchet_cli.NewHatchetClient(o.HatchetCliOpts...)
 		if err != nil {
 			return nil, err
 		}
 		myResource.HatchetCli = hatchetCli
-		o.HatchetWorkerOpts = append(o.HatchetWorkerOpts, hatchet_worker.WithClient(hatchetCli))
-		worker, err := hatchet_worker.NewWorker(o.HatchetWorkerOpts...)
+		worker, err := hatchetCli.Worker(o.HatchetWorkerOpts)
 		if err != nil {
 			return nil, err
 		}
