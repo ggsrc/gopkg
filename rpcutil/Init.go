@@ -2,6 +2,7 @@ package rpcutil
 
 import (
 	"context"
+	"github.com/ggsrc/gopkg/zerolog/log"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
@@ -167,7 +168,7 @@ func InitResource(ctx context.Context, options ...RpcInitHelperOption) (*Resourc
 func MustInitResource(ctx context.Context, options ...RpcInitHelperOption) *Resource {
 	res, err := InitResource(ctx, options...)
 	if err != nil {
-		panic(err)
+		log.Fatal().Err(err).Msg("Init resource failed")
 	}
 	return res
 }
