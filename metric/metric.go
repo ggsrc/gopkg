@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"net/http"
+	"sort"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -47,14 +48,20 @@ func (s *Server) Start() error {
 
 // RecordEvent auto register counter
 func RecordEvent(e MetricEvent) {
-	labelKeys := []string{}
-	labelValues := []string{}
-	for k, v := range e.Labels {
+	// 1. 对 labelKeys 排序
+	labelKeys := make([]string, 0, len(e.Labels))
+	for k := range e.Labels {
 		labelKeys = append(labelKeys, k)
-		labelValues = append(labelValues, v)
+	}
+	sort.Strings(labelKeys)
+
+	// 2. 根据排序后的 keys 构造 labelValues
+	labelValues := make([]string, 0, len(labelKeys))
+	for _, k := range labelKeys {
+		labelValues = append(labelValues, e.Labels[k])
 	}
 
-	// 缓存 & 注册
+	// 3. 注册并缓存 CounterVec
 	counter, ok := counters[e.Name]
 	if !ok {
 		counter = prometheus.NewCounterVec(
@@ -65,5 +72,6 @@ func RecordEvent(e MetricEvent) {
 		counters[e.Name] = counter
 	}
 
+	// 4. 打点
 	counter.WithLabelValues(labelValues...).Add(e.Value)
 }
