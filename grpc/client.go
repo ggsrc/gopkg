@@ -56,7 +56,6 @@ func (c *Client) Dial(ctx context.Context, addr string, opts ...grpc.DialOption)
 			grpcinterceptor.SentryUnaryClientInterceptor(c.conf.RavenDSN),
 			grpcinterceptor.ContextUnaryClientInterceptor(),
 			logging.UnaryClientInterceptor(InterceptorLogger(*logger), logging.WithLogOnEvents(loggableEvents...)),
-			grpcinterceptor.ContextCacheUnaryClientInterceptor(),
 			grpc_prometheus.UnaryClientInterceptor,
 		)),
 
