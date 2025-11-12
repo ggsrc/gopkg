@@ -1,6 +1,8 @@
 module github.com/ggsrc/gopkg/rpcutil
 
-go 1.24
+go 1.24.0
+
+toolchain go1.24.9
 
 replace (
 	github.com/ggsrc/gopkg/database/cache => ../database/cache

@@ -2,7 +2,6 @@ package rpcutil
 
 import (
 	"context"
-	"github.com/ggsrc/gopkg/zerolog/log"
 	"time"
 
 	"github.com/go-co-op/gocron/v2"
@@ -15,6 +14,7 @@ import (
 	gg_grpc "github.com/ggsrc/gopkg/grpc"
 	"github.com/ggsrc/gopkg/health"
 	"github.com/ggsrc/gopkg/profiling"
+	"github.com/ggsrc/gopkg/zerolog/log"
 )
 
 // Defaults for RpcInitHelperOptions.
