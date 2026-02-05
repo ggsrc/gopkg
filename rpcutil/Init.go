@@ -166,7 +166,10 @@ func InitResource(ctx context.Context, options ...RpcInitHelperOption) (*Resourc
 }
 
 func MustInitResource(ctx context.Context, options ...RpcInitHelperOption) *Resource {
-	res, err := InitResource(ctx, options...)
+	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	
+	res, err := InitResource(timeoutCtx, options...)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Init resource failed")
 	}
