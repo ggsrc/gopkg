@@ -1,6 +1,6 @@
 module github.com/ggsrc/gopkg/grpc
 
-go 1.22
+go 1.24.0
 
 replace (
 	github.com/ggsrc/gopkg/env => ../env
@@ -11,14 +11,14 @@ replace (
 )
 
 require (
-	github.com/ggsrc/gopkg/env v0.0.0-20250114093211-f3c4b0e13889
+	github.com/ggsrc/gopkg/env v0.0.0-20250307074235-8cbb76b9e006
 	github.com/ggsrc/gopkg/interceptor v0.0.0-20250307074235-8cbb76b9e006
-	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.1.0
+	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
-	github.com/rs/zerolog v1.33.0
+	github.com/rs/zerolog v1.34.0
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.55.0
-	google.golang.org/grpc v1.67.0
+	google.golang.org/grpc v1.76.0
 )
 
 require (
@@ -31,32 +31,32 @@ require (
 	github.com/cloudwego/iasm v0.2.0 // indirect
 	github.com/dolthub/maphash v0.1.0 // indirect
 	github.com/gammazero/deque v0.2.1 // indirect
-	github.com/getsentry/sentry-go v0.29.0 // indirect
-	github.com/ggsrc/gopkg/mctx v0.0.0-20250114093211-f3c4b0e13889 // indirect
-	github.com/ggsrc/gopkg/utils v0.0.0-20250114093211-f3c4b0e13889 // indirect
-	github.com/ggsrc/gopkg/zerolog v0.0.0-20250114093211-f3c4b0e13889 // indirect
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/getsentry/sentry-go v0.32.0 // indirect
+	github.com/ggsrc/gopkg/mctx v0.0.0-20250307074235-8cbb76b9e006 // indirect
+	github.com/ggsrc/gopkg/utils v0.0.0-20250307074235-8cbb76b9e006 // indirect
+	github.com/ggsrc/gopkg/zerolog v0.0.0-20250307074235-8cbb76b9e006 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.0.9 // indirect
-	github.com/mattn/go-colorable v0.1.13 // indirect
+	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
+	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/maypok86/otter v1.2.3 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/prometheus/client_golang v1.20.2 // indirect
+	github.com/prometheus/client_golang v1.22.0 // indirect
 	github.com/prometheus/client_model v0.6.1 // indirect
-	github.com/prometheus/common v0.55.0 // indirect
-	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/prometheus/common v0.62.0 // indirect
+	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
-	go.opentelemetry.io/otel v1.30.0 // indirect
-	go.opentelemetry.io/otel/metric v1.30.0 // indirect
-	go.opentelemetry.io/otel/trace v1.30.0 // indirect
-	golang.org/x/arch v0.0.0-20210923205945-b76863e36670 // indirect
-	golang.org/x/net v0.29.0 // indirect
-	golang.org/x/sync v0.8.0 // indirect
-	golang.org/x/sys v0.25.0 // indirect
-	golang.org/x/text v0.18.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240903143218-8af14fe29dc1 // indirect
-	google.golang.org/protobuf v1.34.2 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/otel v1.38.0 // indirect
+	go.opentelemetry.io/otel/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/trace v1.38.0 // indirect
+	golang.org/x/arch v0.4.0 // indirect
+	golang.org/x/net v0.46.0 // indirect
+	golang.org/x/sync v0.17.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251103181224-f26f9409b101 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 )
