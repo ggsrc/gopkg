@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"net/http"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,11 +35,15 @@ import (
 	gopkg_zerolog "github.com/ggsrc/gopkg/zerolog"
 )
 
-// ---- framework observability metric vars ------------------------------
+// ---- framework metric vars (consolidated) -----------------------------
 //
-// 这些 metric 在 framework 层（不属于 cron / health 范畴）通用。
-// 注：cronPanicCounter / cronErrorCounter / cronDurationHist 继续住在 cron.go；
-// depUnhealthyCounter 继续住在 health.go。
+// 所有 framework 层 metric var 集中在本文件，单一 init() 统一注册到
+// prometheus.DefaultRegisterer。包含 panic / goroutine / shutdown 通用 metric，
+// 以及 cron / dep health 域专用 metric — 它们在各自文件的方法体里被使用
+// (cron.go wrapCronFn / health.go readinessHandler) 但声明集中在这里。
+//
+// 例外：仅一处 health.go 的 depUnhealthyCounter 仍在 health.go 内声明
+// (Wave 1 期间 Agent C 独立 init，单独 var 不破坏全局排序；保留以避免无谓 diff)。
 
 var (
 	// panicCounter records panics recovered by framework interceptors /
@@ -80,6 +85,51 @@ var (
 		},
 		[]string{"subapp", "phase"},
 	)
+
+	// ---- cron metrics ---- referenced by cron.go wrapCronFn ------------
+
+	cronPanicCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_cron_panic_total",
+			Help: "Number of times a cron job panicked (recovered).",
+		},
+		[]string{"subapp", "job"},
+	)
+
+	cronErrorCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_cron_error_total",
+			Help: "Number of times a cron job returned a non-nil error.",
+		},
+		[]string{"subapp", "job"},
+	)
+
+	cronDurationHist = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mega_cron_duration_seconds",
+			Help:    "Cron job execution duration in seconds.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"subapp", "job"},
+	)
+
+	// ---- request metrics ---- per-subapp HTTP/gRPC counters ------------
+
+	grpcRequestCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_grpc_request_total",
+			Help: "Number of gRPC requests handled, labeled by subapp + method + code.",
+		},
+		[]string{"subapp", "method", "code"},
+	)
+
+	httpRequestCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_http_request_total",
+			Help: "Number of HTTP requests handled, labeled by subapp + path + method + status.",
+		},
+		[]string{"subapp", "path", "method", "status"},
+	)
 )
 
 func init() {
@@ -88,6 +138,11 @@ func init() {
 		goroutineFailCounter,
 		goroutinePanicCounter,
 		shutdownAbortCounter,
+		cronPanicCounter,
+		cronErrorCounter,
+		cronDurationHist,
+		grpcRequestCounter,
+		httpRequestCounter,
 	)
 }
 
@@ -299,37 +354,51 @@ func (m *MultiResource) injectSubAppCtx(ctx context.Context, subapp string) cont
 	return l.WithContext(ctx)
 }
 
-// ---- metric interceptors (v1: pass-through; v2: subapp-labeled) ------
+// ---- metric interceptors (subapp-labeled request counters) -----------
 
-// metricUnaryInterceptor is a placeholder for future subapp-labeled gRPC
-// metrics. v1 relies on grpc_prometheus's default metrics (enabled via
-// ensureGrpcPrometheus); this interceptor is a pass-through to keep the
-// chain shape stable.
-//
-// TODO(v2): add mega_grpc_request_total{subapp,method,code}.
+// metricUnaryInterceptor increments mega_grpc_request_total{subapp,method,code}
+// on every unary call. Pairs with grpc_prometheus's default latency
+// histogram (enabled in ensureGrpcPrometheus).
 func (m *MultiResource) metricUnaryInterceptor(subapp string) grpc.UnaryServerInterceptor {
 	return func(
 		ctx context.Context, req interface{},
 		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
 	) (interface{}, error) {
-		return handler(ctx, req)
+		resp, err := handler(ctx, req)
+		grpcRequestCounter.WithLabelValues(subapp, info.FullMethod, status.Code(err).String()).Inc()
+		return resp, err
 	}
 }
 
 // metricStreamInterceptor is the stream counterpart of metricUnaryInterceptor.
-// TODO(v2): add subapp-labeled metrics.
+// Records exactly once on stream completion.
 func (m *MultiResource) metricStreamInterceptor(subapp string) grpc.StreamServerInterceptor {
 	return func(
 		srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler,
 	) error {
-		return handler(srv, ss)
+		err := handler(srv, ss)
+		grpcRequestCounter.WithLabelValues(subapp, info.FullMethod, status.Code(err).String()).Inc()
+		return err
 	}
 }
 
-// metricHttpMiddleware is the gin counterpart. TODO(v2): subapp-labeled.
+// metricHttpMiddleware increments mega_http_request_total
+// {subapp,path,method,status} after the handler chain completes.
 func (m *MultiResource) metricHttpMiddleware(subapp string) gin.HandlerFunc {
-	return func(c *gin.Context) { c.Next() }
+	return func(c *gin.Context) {
+		c.Next()
+		path := c.FullPath()
+		if path == "" {
+			path = "unknown"
+		}
+		httpRequestCounter.WithLabelValues(
+			subapp,
+			path,
+			c.Request.Method,
+			strconv.Itoa(c.Writer.Status()),
+		).Inc()
+	}
 }
 
 // ---- grpc_prometheus sync.Once register ------------------------------

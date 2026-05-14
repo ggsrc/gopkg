@@ -117,22 +117,32 @@ func (m *MultiResource) processSubApp(app SubApp, opts ...RegisterOption) error 
 				port, existingSubapp, existingListener)
 		}
 
-		switch spec.Protocol {
-		case "grpc":
-			m.GrpcServerOn(port)
-		case "http":
-			m.HttpRouterOn(port)
-		default:
-			return fmt.Errorf("subapp=%s listener=%s: unknown protocol %q (want grpc|http)",
-				app.Name(), spec.Name, spec.Protocol)
-		}
-
+		// Reserve the port → subapp mapping BEFORE creating the server so
+		// the interceptor chain bound during GrpcServerOn / HttpRouterOn can
+		// resolve subapp via lookupSubappLocked. Reversing this order leaves
+		// interceptors with subapp="" — which would mis-label every metric
+		// and lose subapp in the logger context (bug fixed during e2e).
 		m.mu.Lock()
 		if m.portMap == nil {
 			m.portMap = map[string]int{}
 		}
 		m.portMap[app.Name()+"."+spec.Name] = port
 		m.mu.Unlock()
+
+		switch spec.Protocol {
+		case "grpc":
+			m.GrpcServerOn(port)
+		case "http":
+			m.HttpRouterOn(port)
+		default:
+			// Best-effort rollback of the just-inserted mapping; impact is
+			// limited (Register fails fast → mega aborts) but keeps state tidy.
+			m.mu.Lock()
+			delete(m.portMap, app.Name()+"."+spec.Name)
+			m.mu.Unlock()
+			return fmt.Errorf("subapp=%s listener=%s: unknown protocol %q (want grpc|http)",
+				app.Name(), spec.Name, spec.Protocol)
+		}
 	}
 	return nil
 }
@@ -184,11 +194,13 @@ func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.
 		grpc.ChainUnaryInterceptor(
 			m.subappLoggerUnaryInterceptor(subapp),
 			m.panicRecoverUnaryInterceptor(subapp),
+			m.metricUnaryInterceptor(subapp),
 			grpc_prometheus.UnaryServerInterceptor,
 		),
 		grpc.ChainStreamInterceptor(
 			m.subappLoggerStreamInterceptor(subapp),
 			m.panicRecoverStreamInterceptor(subapp),
+			m.metricStreamInterceptor(subapp),
 			grpc_prometheus.StreamServerInterceptor,
 		),
 	}, opts...)
@@ -215,6 +227,7 @@ func (m *MultiResource) HttpRouterOn(port int) *gin.Engine {
 	e := gin.New()
 	e.Use(m.subappLoggerHttpMiddleware(subapp))
 	e.Use(m.panicRecoverHttpMiddleware(subapp))
+	e.Use(m.metricHttpMiddleware(subapp))
 	m.httpRouters[port] = e
 	return e
 }

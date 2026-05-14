@@ -121,6 +121,12 @@ type MultiResource struct {
 
 	// subappVersionOnce 保证 registerSubAppVersionMetric 跨多次 Start() 幂等。
 	subappVersionOnce sync.Once
+
+	// subAppVersions 由 RecordSubAppVersion 填充（典型场景: mega binary 通过
+	// -ldflags -X 注入每个 sub-app 的 commit SHA）。registerSubAppVersionMetric
+	// 在 Start Phase 4 读取这张表；未记录的 sub-app 在 metric 中以 "unknown"
+	// 出现。所有读写在 m.mu 保护下。
+	subAppVersions map[string]string
 }
 
 // registeredSubApp 是 framework 内部存放每个已注册 sub-app 的记录。
@@ -413,8 +419,38 @@ func (m *MultiResource) setMegaSDKEnv() {
 	}
 }
 
+// RecordSubAppVersion records a sub-app's version string before Start.
+//
+// Mega binary typical usage (cmd/mega/main.go):
+//
+//	// build-time:
+//	//   go build -ldflags "-X main.airdropVersion=$AIRDROP_SHA -X main.tokenVersion=$TOKEN_SHA" ...
+//	var airdropVersion, tokenVersion string
+//
+//	func main() {
+//	    res := rpcutil.MustNewMultiResource(ctx, rpcutil.WithMegaAppName("airdrop-mega"))
+//	    res.RecordSubAppVersion("airdrop", airdropVersion)
+//	    res.RecordSubAppVersion("token",   tokenVersion)
+//	    ...
+//	    res.Start(ctx)
+//	}
+//
+// Values default to "unknown" if not recorded (see registerSubAppVersionMetric).
+// Safe to call before or after Register; idempotent overwrite — last call wins.
+func (m *MultiResource) RecordSubAppVersion(subapp, version string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.subAppVersions == nil {
+		m.subAppVersions = map[string]string{}
+	}
+	if version == "" {
+		version = "unknown"
+	}
+	m.subAppVersions[subapp] = version
+}
+
 // registerSubAppVersionMetric 注册 mega_subapp_version gauge（docs/12 §四）。
-// 当前 v1 用 "unknown"（Wave 4 startup 后续会从 ldflags 注入真实版本）。
+// 使用 RecordSubAppVersion 记录的版本字符串；未记录的 sub-app 标记为 "unknown"。
 // sync.Once 保证多次调用幂等，避免 prometheus.MustRegister 重复 panic。
 func (m *MultiResource) registerSubAppVersionMetric() {
 	m.subappVersionOnce.Do(func() {
@@ -428,12 +464,21 @@ func (m *MultiResource) registerSubAppVersionMetric() {
 		m.mu.Lock()
 		apps := make([]registeredSubApp, len(m.subApps))
 		copy(apps, m.subApps)
+		versions := make(map[string]string, len(m.subAppVersions))
+		for k, v := range m.subAppVersions {
+			versions[k] = v
+		}
 		m.mu.Unlock()
 		for _, rs := range apps {
 			if rs.app == nil {
 				continue
 			}
-			g.WithLabelValues(rs.app.Name(), "unknown").Set(1)
+			name := rs.app.Name()
+			version := versions[name]
+			if version == "" {
+				version = "unknown"
+			}
+			g.WithLabelValues(name, version).Set(1)
 		}
 		prometheus.MustRegister(g)
 	})

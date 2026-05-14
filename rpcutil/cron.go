@@ -16,7 +16,6 @@ import (
 	"time"
 
 	gocron "github.com/go-co-op/gocron/v2"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -46,39 +45,10 @@ type Scheduler interface {
 	Stop(ctx context.Context) error
 }
 
-// ---- cron metrics ----
-//
-// 这些 var 在 Wave 2 可能被搬到 observability.go 统一管理；wave 1 先就近声明，
-// init() 注册到 DefaultRegisterer（业务 mega-app 的 /metrics 会被一并采集）。
-
-var (
-	cronPanicCounter = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "mega_cron_panic_total",
-			Help: "Number of times a cron job panicked (recovered).",
-		},
-		[]string{"subapp", "job"},
-	)
-	cronErrorCounter = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "mega_cron_error_total",
-			Help: "Number of times a cron job returned a non-nil error.",
-		},
-		[]string{"subapp", "job"},
-	)
-	cronDurationHist = prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "mega_cron_duration_seconds",
-			Help:    "Cron job execution duration in seconds.",
-			Buckets: prometheus.DefBuckets,
-		},
-		[]string{"subapp", "job"},
-	)
-)
-
-func init() {
-	prometheus.MustRegister(cronPanicCounter, cronErrorCounter, cronDurationHist)
-}
+// cron metric vars (cronPanicCounter / cronErrorCounter / cronDurationHist)
+// are declared and registered centrally in observability.go. They are
+// referenced from this file's wrapCronFn but live there for unified metric
+// var ownership across the framework.
 
 // registerCron 把 sub-app 的所有 CronJob 注册到 framework scheduler。
 // 自动加 "{subapp}." 前缀，校验 fullName 唯一，包装 wrapCronFn。
