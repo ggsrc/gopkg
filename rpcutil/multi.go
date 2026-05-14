@@ -7,19 +7,20 @@
 // 与老 Resource API 并存（向后兼容，老 sub-app 不强制改造）。详见
 // mega-project/docs/10-framework-spec.md §二、§三。
 //
-// 本文件目前是 **API freeze 占位版本**：类型定义齐全（其它文件依赖），
-// 方法体多为空 / 返回 errNotImplemented。Wave 3 agent 会替换占位，
-// 实现 Register / SubAppContext / LoggerFor / MetricRegistryFor /
-// GrpcServerOn / HttpRouterOn / setMegaSDKEnv 等行为。
-//
 // 文件所有权：
-//   - 类型 stub（MultiResource / SubApp / MultiOption / multiConfig / registeredSubApp / registeredHealthCheck）→ Wave 0（我）
-//   - 行为实现 → Wave 3 agent G
+//   - 类型 stub（MultiResource / SubApp / MultiOption / multiConfig / registeredSubApp / registeredHealthCheck）→ Wave 0
+//   - 行为实现（NewMultiResource / Register / SubAppContext / LoggerFor /
+//     MetricRegistryFor / setMegaSDKEnv / registerSubAppVersionMetric） →
+//     Wave 3 agent G（本次提交）
 package rpcutil
 
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -28,13 +29,31 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"github.com/stumble/dcache"
 	"github.com/stumble/wpgx"
 	"google.golang.org/grpc"
+
+	gopkg_zerolog "github.com/ggsrc/gopkg/zerolog"
 )
 
-// errNotImplemented 是 Wave 0 stub 的占位错误。Wave 1-4 agent 替换。
+// errNotImplemented 是占位错误。仅保留以兼容历史 stub 测试；本次实现不再返回。
 var errNotImplemented = errors.New("rpcutil: not implemented (Wave 0 stub)")
+
+// subAppNameRe enforces docs/10 §三 sub-app 命名规范：
+// 小写字母开头，仅允许小写字母 / 数字 / dash。
+var subAppNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// sdkEnvBlacklist 列出不允许 sub-app ConfigMap 通过 envPrefix 暗中覆盖的 SDK
+// 全局 env。详见 docs/10 §五。
+var sdkEnvBlacklist = []string{
+	"OTEL_SERVICE_NAME",
+	"OTEL_EXPORTER_OTLP_ENDPOINT",
+	"OTEL_EXPORTER_OTLP_PROTOCOL",
+	"OTEL_RESOURCE_ATTRIBUTES",
+	"OTEL_TRACES_SAMPLER",
+	"OTEL_TRACES_SAMPLER_ARG",
+}
 
 // SubApp 是 mega 内一个子应用必须实现的契约。
 //
@@ -99,6 +118,9 @@ type MultiResource struct {
 	closeFuncs []func(context.Context) error
 
 	mu sync.Mutex // 保护并发 Register 和内部 map 写入
+
+	// subappVersionOnce 保证 registerSubAppVersionMetric 跨多次 Start() 幂等。
+	subappVersionOnce sync.Once
 }
 
 // registeredSubApp 是 framework 内部存放每个已注册 sub-app 的记录。
@@ -142,7 +164,6 @@ func WithMigrationMode(enabled bool) MultiOption {
 }
 
 // MustNewMultiResource 是 NewMultiResource 的 panic 版本。
-// Wave 3 agent 实现。
 func MustNewMultiResource(ctx context.Context, opts ...MultiOption) *MultiResource {
 	m, err := NewMultiResource(ctx, opts...)
 	if err != nil {
@@ -152,13 +173,63 @@ func MustNewMultiResource(ctx context.Context, opts ...MultiOption) *MultiResour
 }
 
 // NewMultiResource 创建 MultiResource 实例。
-// Wave 3 agent 实现：初始化所有 map / scheduler / startedAt / redis client / etc.
-// 包括读取 MEGA_DISABLE_CRON env、设置 mega SDK env（OTEL_SERVICE_NAME 等）。
+//
+// 初始化所有 map / scheduler / startedAt，读取 MEGA_DISABLE_CRON env，
+// 设置 mega SDK env（OTEL_SERVICE_NAME 等）。Redis / DCache 默认 nil；
+// 业务 main 后续可通过未来 setter 注入（deps.go 的 CacheFor 已 null-safe）。
 func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource, error) {
-	return nil, errNotImplemented
+	cfg := defaultMultiConfig()
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	if cfg.appName == "" {
+		return nil, errors.New("rpcutil: WithMegaAppName required")
+	}
+
+	derived := log.Logger.With().Str("app", cfg.appName).Logger()
+
+	m := &MultiResource{
+		appName:       cfg.appName,
+		rootLogger:    &derived,
+		migrationMode: cfg.migrationMode,
+
+		portMap:       map[string]int{},
+		grpcServers:   map[int]*grpc.Server{},
+		grpcListeners: map[int]any{},
+		httpRouters:   map[int]*gin.Engine{},
+		httpListeners: map[int]any{},
+		httpServers:   map[int]any{},
+
+		dbPools:   map[string]*wpgx.Pool{},
+		dbConfigs: map[string]DBConfig{},
+
+		caches: map[string]*dcache.DCache{},
+
+		registries: map[string]*prometheus.Registry{},
+		gatherers:  prometheus.Gatherers{prometheus.DefaultGatherer},
+
+		cronJobs: map[string]bool{},
+
+		startedAt: &atomic.Pointer[time.Time]{},
+	}
+
+	sched, err := newDefaultScheduler()
+	if err != nil {
+		return nil, fmt.Errorf("rpcutil: NewMultiResource scheduler: %w", err)
+	}
+	m.scheduler = sched
+
+	if os.Getenv("MEGA_DISABLE_CRON") == "true" {
+		m.cronDisabled = true
+		log.Info().Str("app", cfg.appName).Msg("MEGA_DISABLE_CRON=true; cron disabled at mega level")
+	}
+
+	m.setMegaSDKEnv()
+
+	return m, nil
 }
 
-// ---- 公共 API（Wave 3 agent 实现，其它 wave 可看签名） ----
+// ---- 公共 API ----
 
 // Register 注册一组 sub-app。可多次调用，但所有 Register 必须在 Start 之前完成。
 //
@@ -169,26 +240,201 @@ func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource,
 //	    token.New(),   OnPorts(PortMap{"grpc": 9091, "http-rest": 3001}),
 //	)
 //
-// Wave 3 agent 实现：校验 Listeners vs OnPorts 一致 / 端口唯一 / Cron 唯一 /
-// DB pool 名唯一，然后 m.subApps 追加 registeredSubApp。
+// 校验顺序：
+//  1. arg 非空
+//  2. 每个 SubApp.Name() 满足命名规范且全 mega 内唯一
+//  3. processSubApp 分配端口 + 创建 gRPC server / gin engine
+//  4. 追加 registeredSubApp 到 m.subApps（envPrefix 全大写下划线）
+//
+// 任一 sub-app 失败立即返回 error；已注册 sub-app 保留（端口已绑无法回滚）。
 func (m *MultiResource) Register(args ...interface{}) error {
-	return errNotImplemented
+	if len(args) == 0 {
+		return errors.New("rpcutil: Register requires at least one SubApp")
+	}
+
+	i := 0
+	for i < len(args) {
+		app, ok := args[i].(SubApp)
+		if !ok {
+			return fmt.Errorf("rpcutil: Register: arg %d expected SubApp, got %T", i, args[i])
+		}
+
+		// 收集 opts，直到下一个 SubApp 或 args 终结。
+		j := i + 1
+		var opts []RegisterOption
+		for j < len(args) {
+			if _, isApp := args[j].(SubApp); isApp {
+				break
+			}
+			opt, isOpt := args[j].(RegisterOption)
+			if !isOpt {
+				return fmt.Errorf(
+					"rpcutil: Register: arg %d expected RegisterOption or SubApp, got %T",
+					j, args[j])
+			}
+			opts = append(opts, opt)
+			j++
+		}
+
+		if err := m.registerOne(app, opts...); err != nil {
+			return err
+		}
+
+		i = j
+	}
+	return nil
+}
+
+// registerOne 处理 Register 拆分后的单个 (SubApp, opts) 组。
+func (m *MultiResource) registerOne(app SubApp, opts ...RegisterOption) error {
+	name := app.Name()
+	if !subAppNameRe.MatchString(name) {
+		return fmt.Errorf("rpcutil: Register: invalid SubApp name %q (want %s)",
+			name, subAppNameRe.String())
+	}
+
+	m.mu.Lock()
+	for _, rs := range m.subApps {
+		if rs.app != nil && rs.app.Name() == name {
+			m.mu.Unlock()
+			return fmt.Errorf("rpcutil: Register: duplicate SubApp name %q", name)
+		}
+	}
+	m.mu.Unlock()
+
+	if err := m.processSubApp(app, opts...); err != nil {
+		return fmt.Errorf("rpcutil: Register %q: %w", name, err)
+	}
+
+	cfg := mergeRegisterOptions(opts...)
+	envPrefix := strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
+
+	m.mu.Lock()
+	m.subApps = append(m.subApps, registeredSubApp{
+		app:       app,
+		portMap:   cfg.portMap,
+		envPrefix: envPrefix,
+	})
+	m.mu.Unlock()
+	return nil
 }
 
 // SubAppContext 返回带 subapp logger 的 base ctx。
-// 详见 docs/12 §一 Layer 1。Wave 3 agent 实现。
+// 详见 docs/12 §一 Layer 1。
 func (m *MultiResource) SubAppContext(subapp string) context.Context {
-	return context.Background()
+	ctx := gopkg_zerolog.WithSubApp(context.Background(), subapp)
+	base := m.rootLogger
+	if base == nil {
+		base = &log.Logger
+	}
+	builder := base.With().Str("subapp", subapp)
+	if m.migrationMode {
+		builder = builder.Str("legacy_app", "galxe-"+subapp)
+	}
+	l := builder.Logger()
+	return l.WithContext(ctx)
 }
 
 // LoggerFor 直接返回 sub-app logger（不通过 ctx）。
-// Wave 3 agent 实现。
 func (m *MultiResource) LoggerFor(subapp string) *zerolog.Logger {
-	return m.rootLogger
+	base := m.rootLogger
+	if base == nil {
+		base = &log.Logger
+	}
+	builder := base.With().Str("subapp", subapp)
+	if m.migrationMode {
+		builder = builder.Str("legacy_app", "galxe-"+subapp)
+	}
+	l := builder.Logger()
+	return &l
 }
 
 // MetricRegistryFor 返回 sub-app 独立 Prometheus registry。
-// 详见 docs/12 §二。Wave 3 agent 实现。
+// 同名重复调用返回同一 registry（幂等）。注册时把 registry 同时挂到
+// m.gatherers，启动期 /metrics 通过 prometheus.Gatherers.Gather() 聚合。
+// 详见 docs/12 §二。
 func (m *MultiResource) MetricRegistryFor(subapp string) prometheus.Registerer {
-	return prometheus.DefaultRegisterer
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.registries == nil {
+		m.registries = map[string]*prometheus.Registry{}
+	}
+	if reg, ok := m.registries[subapp]; ok {
+		return reg
+	}
+	reg := prometheus.NewRegistry()
+	m.registries[subapp] = reg
+	m.gatherers = append(m.gatherers, reg)
+	return reg
+}
+
+// subAppNames 返回 Register 顺序的 sub-app 名字列表。
+// health.go 的 orderedSubAppNames 自带排序逻辑，此处保持注册顺序不动。
+func (m *MultiResource) subAppNames() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	names := make([]string, 0, len(m.subApps))
+	for _, rs := range m.subApps {
+		if rs.app != nil {
+			names = append(names, rs.app.Name())
+		}
+	}
+	return names
+}
+
+// subAppByPort 反查端口对应的 sub-app 名字。Wave 4 startup.go 在 shutdown
+// abort metric 上做 subapp label 时使用。
+func (m *MultiResource) subAppByPort(port int) string {
+	return m.subappForListener(port)
+}
+
+// setMegaSDKEnv 在 NewMultiResource 时统一 mega 层 SDK env：
+//  1. 强制设置 OTEL_SERVICE_NAME = "galxe-<appName>"，覆盖 ConfigMap 残余值
+//  2. 扫描已注册 sub-app 的 envPrefix，若发现 sub-app ConfigMap 泄漏的 SDK
+//     env（如 STAKING_OTEL_SERVICE_NAME），输出 warn 但不 fail
+//
+// NewMultiResource 时 m.subApps 为空，循环 no-op；Register 之后业务也可
+// 再次调用以做二次审计。
+func (m *MultiResource) setMegaSDKEnv() {
+	_ = os.Setenv("OTEL_SERVICE_NAME", "galxe-"+m.appName)
+	names := m.subAppNames()
+	for _, key := range sdkEnvBlacklist {
+		for _, subapp := range names {
+			prefix := strings.ToUpper(strings.ReplaceAll(subapp, "-", "_"))
+			prefixed := prefix + "_" + key
+			if v, ok := os.LookupEnv(prefixed); ok {
+				log.Warn().
+					Str("env", prefixed).
+					Str("value", v).
+					Str("subapp", subapp).
+					Msg("sub-app ConfigMap leaked SDK env; ignored (use mega-shared-config)")
+			}
+		}
+	}
+}
+
+// registerSubAppVersionMetric 注册 mega_subapp_version gauge（docs/12 §四）。
+// 当前 v1 用 "unknown"（Wave 4 startup 后续会从 ldflags 注入真实版本）。
+// sync.Once 保证多次调用幂等，避免 prometheus.MustRegister 重复 panic。
+func (m *MultiResource) registerSubAppVersionMetric() {
+	m.subappVersionOnce.Do(func() {
+		g := prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Name: "mega_subapp_version",
+				Help: "Sub-app version (Go module pseudo-version or commit SHA) loaded in this mega",
+			},
+			[]string{"subapp", "version"},
+		)
+		m.mu.Lock()
+		apps := make([]registeredSubApp, len(m.subApps))
+		copy(apps, m.subApps)
+		m.mu.Unlock()
+		for _, rs := range apps {
+			if rs.app == nil {
+				continue
+			}
+			g.WithLabelValues(rs.app.Name(), "unknown").Set(1)
+		}
+		prometheus.MustRegister(g)
+	})
 }
