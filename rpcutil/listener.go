@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
@@ -174,10 +175,24 @@ func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.
 	if s, ok := m.grpcServers[port]; ok {
 		return s
 	}
-	// TODO(wave-2): inject panic-recover / subapp-logger / metric interceptors here
-	// (see docs/12-framework-observability.md §一). Until then we return a
-	// plain server constructed with caller-supplied opts only.
-	s := grpc.NewServer(opts...)
+	m.ensureGrpcPrometheus()
+	// Inline lookup to avoid re-entering m.mu (m.subappForListener locks);
+	// safe because we already hold m.mu. May be "" if processSubApp hasn't
+	// recorded the listener yet — interceptors handle "" gracefully.
+	subapp := lookupSubappLocked(m.portMap, port)
+	chained := append([]grpc.ServerOption{
+		grpc.ChainUnaryInterceptor(
+			m.subappLoggerUnaryInterceptor(subapp),
+			m.panicRecoverUnaryInterceptor(subapp),
+			grpc_prometheus.UnaryServerInterceptor,
+		),
+		grpc.ChainStreamInterceptor(
+			m.subappLoggerStreamInterceptor(subapp),
+			m.panicRecoverStreamInterceptor(subapp),
+			grpc_prometheus.StreamServerInterceptor,
+		),
+	}, opts...)
+	s := grpc.NewServer(chained...)
 	m.grpcServers[port] = s
 	return s
 }
@@ -193,11 +208,13 @@ func (m *MultiResource) HttpRouterOn(port int) *gin.Engine {
 	if e, ok := m.httpRouters[port]; ok {
 		return e
 	}
-	// TODO(wave-2): inject panic-recover / subapp-logger / metric middleware here
-	// (see docs/12-framework-observability.md §一). gin.New (not gin.Default)
-	// keeps the engine free of gin's default Logger+Recovery so wave-2 owns the
-	// chain.
+	// Inline lookup to avoid re-entering m.mu (m.subappForListener locks);
+	// safe because we already hold m.mu. May be "" if processSubApp hasn't
+	// recorded the listener yet — middleware handles "" gracefully.
+	subapp := lookupSubappLocked(m.portMap, port)
 	e := gin.New()
+	e.Use(m.subappLoggerHttpMiddleware(subapp))
+	e.Use(m.panicRecoverHttpMiddleware(subapp))
 	m.httpRouters[port] = e
 	return e
 }

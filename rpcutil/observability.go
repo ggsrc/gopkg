@@ -1,0 +1,381 @@
+// observability.go — panic recover interceptors / subapp logger interceptors /
+// safe background goroutine (observability.Go) / framework metric vars +
+// grpc_prometheus sync.Once register.
+//
+// 详见:
+//   - mega-project/docs/11-framework-startup-shutdown.md §三 (panic recover)
+//   - mega-project/docs/11-framework-startup-shutdown.md §四 (observability.Go)
+//   - mega-project/docs/12-framework-observability.md §一 (subapp logger interceptors)
+//   - mega-project/docs/12-framework-observability.md §二 (metric registry +
+//     grpc_prometheus.sync.Once)
+//
+// 文件所有权：Wave 2 agent E.
+// 不要把 cron_* / depUnhealthyCounter 搬到本文件 —— 它们继续住在
+// cron.go / health.go 各自的 init() 里。
+package rpcutil
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"runtime/debug"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	gopkg_zerolog "github.com/ggsrc/gopkg/zerolog"
+)
+
+// ---- framework observability metric vars ------------------------------
+//
+// 这些 metric 在 framework 层（不属于 cron / health 范畴）通用。
+// 注：cronPanicCounter / cronErrorCounter / cronDurationHist 继续住在 cron.go；
+// depUnhealthyCounter 继续住在 health.go。
+
+var (
+	// panicCounter records panics recovered by framework interceptors /
+	// middleware. Labels: subapp, site ("unary" / "stream" / "http"),
+	// method (gRPC FullMethod or HTTP path).
+	panicCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_panic_total",
+			Help: "Number of panics recovered by framework interceptors/middleware.",
+		},
+		[]string{"subapp", "site", "method"},
+	)
+
+	// goroutineFailCounter records non-nil error returns from background
+	// goroutines launched via MultiResource.Go.
+	goroutineFailCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_goroutine_fail_total",
+			Help: "Number of background goroutine failures (non-nil error returns).",
+		},
+		[]string{"subapp", "name"},
+	)
+
+	// goroutinePanicCounter records panics in background goroutines.
+	goroutinePanicCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_goroutine_panic_total",
+			Help: "Number of panics recovered in background goroutines.",
+		},
+		[]string{"subapp", "name"},
+	)
+
+	// shutdownAbortCounter records timeouts during graceful shutdown.
+	// Used by Wave 4 startup.go Stop().
+	shutdownAbortCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_shutdown_aborted_total",
+			Help: "Number of shutdown phases aborted due to timeout.",
+		},
+		[]string{"subapp", "phase"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(
+		panicCounter,
+		goroutineFailCounter,
+		goroutinePanicCounter,
+		shutdownAbortCounter,
+	)
+}
+
+// ---- background goroutine backoff knobs (overridable in tests) -------
+//
+// Production: 1s initial, 60s max (matches docs/11 §四). Tests can shrink
+// these to milliseconds via t.Cleanup to keep retry-loop coverage fast.
+
+var (
+	goroutineInitialBackoff = 1 * time.Second
+	goroutineMaxBackoff     = 60 * time.Second
+)
+
+// ---- observability.Go — safe background goroutine --------------------
+
+// Go starts a background goroutine with ctx / panic recover / exponential
+// backoff restart. fn returning nil exits the goroutine naturally; fn
+// returning an error or panicking causes a restart up to goroutineMaxBackoff.
+//
+// See mega-project/docs/11-framework-startup-shutdown.md §四.
+func (m *MultiResource) Go(subapp, name string, fn func(ctx context.Context) error) {
+	ctx := m.SubAppContext(subapp)
+	go m.runGoroutineWithRetry(ctx, subapp, name, fn)
+}
+
+func (m *MultiResource) runGoroutineWithRetry(
+	ctx context.Context,
+	subapp, name string,
+	fn func(context.Context) error,
+) {
+	backoff := goroutineInitialBackoff
+	maxBackoff := goroutineMaxBackoff
+
+	for {
+		if ctx.Err() != nil {
+			return
+		}
+
+		err := m.runOnce(ctx, subapp, name, fn)
+		if err == nil {
+			return
+		}
+
+		log.Error().
+			Err(err).
+			Str("subapp", subapp).
+			Str("goroutine", name).
+			Dur("backoff", backoff).
+			Msg("background goroutine failed; retrying")
+		goroutineFailCounter.WithLabelValues(subapp, name).Inc()
+
+		select {
+		case <-time.After(backoff):
+		case <-ctx.Done():
+			return
+		}
+
+		backoff *= 2
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+func (m *MultiResource) runOnce(
+	ctx context.Context,
+	subapp, name string,
+	fn func(context.Context) error,
+) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			log.Error().
+				Str("subapp", subapp).
+				Str("goroutine", name).
+				Interface("panic", r).
+				Bytes("stack", stack).
+				Msg("background goroutine panic recovered")
+			goroutinePanicCounter.WithLabelValues(subapp, name).Inc()
+			err = fmt.Errorf("panic: %v", r)
+		}
+	}()
+	return fn(ctx)
+}
+
+// ---- panic recover interceptors --------------------------------------
+
+// panicRecoverUnaryInterceptor returns a gRPC unary interceptor that recovers
+// from panics, increments panicCounter, and returns codes.Internal.
+func (m *MultiResource) panicRecoverUnaryInterceptor(subapp string) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (resp interface{}, err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debug.Stack()
+				log.Error().
+					Str("subapp", subapp).
+					Str("method", info.FullMethod).
+					Interface("panic", r).
+					Bytes("stack", stack).
+					Msg("panic recovered (unary)")
+				panicCounter.WithLabelValues(subapp, "unary", info.FullMethod).Inc()
+				err = status.Errorf(codes.Internal, "internal server error")
+			}
+		}()
+		return handler(ctx, req)
+	}
+}
+
+// panicRecoverStreamInterceptor returns a gRPC stream interceptor that recovers
+// from panics, increments panicCounter, and returns codes.Internal.
+func (m *MultiResource) panicRecoverStreamInterceptor(subapp string) grpc.StreamServerInterceptor {
+	return func(
+		srv interface{}, ss grpc.ServerStream,
+		info *grpc.StreamServerInfo, handler grpc.StreamHandler,
+	) (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debug.Stack()
+				log.Error().
+					Str("subapp", subapp).
+					Str("method", info.FullMethod).
+					Interface("panic", r).
+					Bytes("stack", stack).
+					Msg("panic recovered (stream)")
+				panicCounter.WithLabelValues(subapp, "stream", info.FullMethod).Inc()
+				err = status.Errorf(codes.Internal, "internal server error")
+			}
+		}()
+		return handler(srv, ss)
+	}
+}
+
+// panicRecoverHttpMiddleware returns a gin middleware that recovers from
+// panics, increments panicCounter, and aborts with HTTP 500.
+func (m *MultiResource) panicRecoverHttpMiddleware(subapp string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debug.Stack()
+				path := c.FullPath()
+				log.Error().
+					Str("subapp", subapp).
+					Str("path", path).
+					Interface("panic", r).
+					Bytes("stack", stack).
+					Msg("panic recovered (http)")
+				panicCounter.WithLabelValues(subapp, "http", path).Inc()
+				c.AbortWithStatusJSON(http.StatusInternalServerError,
+					gin.H{"error": "internal server error"})
+			}
+		}()
+		c.Next()
+	}
+}
+
+// ---- subapp logger interceptors --------------------------------------
+
+// subappLoggerUnaryInterceptor injects a sub-app aware logger into ctx
+// (via gopkg_zerolog.WithSubApp and logger.WithContext).
+func (m *MultiResource) subappLoggerUnaryInterceptor(subapp string) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		ctx = m.injectSubAppCtx(ctx, subapp)
+		return handler(ctx, req)
+	}
+}
+
+// subappLoggerStreamInterceptor injects a sub-app aware logger into the
+// server stream's context.
+func (m *MultiResource) subappLoggerStreamInterceptor(subapp string) grpc.StreamServerInterceptor {
+	return func(
+		srv interface{}, ss grpc.ServerStream,
+		info *grpc.StreamServerInfo, handler grpc.StreamHandler,
+	) error {
+		newCtx := m.injectSubAppCtx(ss.Context(), subapp)
+		return handler(srv, &wrappedServerStream{ServerStream: ss, ctx: newCtx})
+	}
+}
+
+// subappLoggerHttpMiddleware injects a sub-app aware logger into the
+// request context for downstream gin handlers.
+func (m *MultiResource) subappLoggerHttpMiddleware(subapp string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		newCtx := m.injectSubAppCtx(c.Request.Context(), subapp)
+		c.Request = c.Request.WithContext(newCtx)
+		c.Next()
+	}
+}
+
+// injectSubAppCtx wraps ctx with the subapp marker and a logger that carries
+// the "subapp" (and optionally "legacy_app") field. m.rootLogger may be nil
+// during early test setups; fall back to the global zerolog/log.Logger.
+func (m *MultiResource) injectSubAppCtx(ctx context.Context, subapp string) context.Context {
+	ctx = gopkg_zerolog.WithSubApp(ctx, subapp)
+	base := m.rootLogger
+	if base == nil {
+		base = &log.Logger
+	}
+	builder := base.With().Str("subapp", subapp)
+	if m.migrationMode {
+		builder = builder.Str("legacy_app", "galxe-"+subapp)
+	}
+	l := builder.Logger()
+	return l.WithContext(ctx)
+}
+
+// ---- metric interceptors (v1: pass-through; v2: subapp-labeled) ------
+
+// metricUnaryInterceptor is a placeholder for future subapp-labeled gRPC
+// metrics. v1 relies on grpc_prometheus's default metrics (enabled via
+// ensureGrpcPrometheus); this interceptor is a pass-through to keep the
+// chain shape stable.
+//
+// TODO(v2): add mega_grpc_request_total{subapp,method,code}.
+func (m *MultiResource) metricUnaryInterceptor(subapp string) grpc.UnaryServerInterceptor {
+	return func(
+		ctx context.Context, req interface{},
+		info *grpc.UnaryServerInfo, handler grpc.UnaryHandler,
+	) (interface{}, error) {
+		return handler(ctx, req)
+	}
+}
+
+// metricStreamInterceptor is the stream counterpart of metricUnaryInterceptor.
+// TODO(v2): add subapp-labeled metrics.
+func (m *MultiResource) metricStreamInterceptor(subapp string) grpc.StreamServerInterceptor {
+	return func(
+		srv interface{}, ss grpc.ServerStream,
+		info *grpc.StreamServerInfo, handler grpc.StreamHandler,
+	) error {
+		return handler(srv, ss)
+	}
+}
+
+// metricHttpMiddleware is the gin counterpart. TODO(v2): subapp-labeled.
+func (m *MultiResource) metricHttpMiddleware(subapp string) gin.HandlerFunc {
+	return func(c *gin.Context) { c.Next() }
+}
+
+// ---- grpc_prometheus sync.Once register ------------------------------
+
+// grpcPromRegisterOnce ensures grpc_prometheus's global side-effect
+// (DefaultServerMetrics registration + handling-time histogram) runs at
+// most once across the whole process. Without this guard, a second
+// MultiResource (e.g. in tests) panics inside prometheus.MustRegister.
+var grpcPromRegisterOnce sync.Once
+
+// ensureGrpcPrometheus enables grpc_prometheus's handling-time histogram
+// exactly once. Safe to call from every GrpcServerOn invocation.
+//
+// Note: grpc_prometheus.DefaultServerMetrics is already registered with
+// the prometheus default registry inside grpc_prometheus's own init();
+// re-registering it here would panic with "already registered". Hence
+// this Once is reserved for the histogram (which is opt-in).
+func (m *MultiResource) ensureGrpcPrometheus() {
+	grpcPromRegisterOnce.Do(func() {
+		grpc_prometheus.EnableHandlingTimeHistogram()
+	})
+}
+
+// ---- helpers ---------------------------------------------------------
+
+// wrappedServerStream lets stream interceptors override ss.Context().
+type wrappedServerStream struct {
+	grpc.ServerStream
+	ctx context.Context
+}
+
+func (w *wrappedServerStream) Context() context.Context { return w.ctx }
+
+// lookupSubappLocked scans portMap for an entry whose value matches port
+// and returns the subapp prefix (before first '.'). Caller MUST already
+// hold m.mu — used by GrpcServerOn / HttpRouterOn to avoid re-entering
+// the lock via m.subappForListener (which itself locks).
+func lookupSubappLocked(portMap map[string]int, port int) string {
+	for key, p := range portMap {
+		if p != port {
+			continue
+		}
+		if idx := strings.Index(key, "."); idx >= 0 {
+			return key[:idx]
+		}
+		return key
+	}
+	return ""
+}
