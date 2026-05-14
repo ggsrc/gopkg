@@ -10,7 +10,11 @@
 package rpcutil
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/gin-gonic/gin"
+	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 )
 
@@ -45,19 +49,17 @@ type registerConfig struct {
 }
 
 // OnPorts 是 Register 的 option，指定本 sub-app 各 listener 的实际端口。
-// Wave 1 agent B 实现。
 func OnPorts(pm PortMap) RegisterOption {
 	return func(c *registerConfig) { c.portMap = pm }
 }
 
 // WithRequirePreferredPort 强制 sub-app 的 PreferredPort 不可被覆盖。
 // 罕见场景：sub-app 历史协议绑死端口。
-// Wave 1 agent B 实现。
 func WithRequirePreferredPort() RegisterOption {
 	return func(c *registerConfig) { c.requirePreferred = true }
 }
 
-// mergeRegisterOptions 合并多个 RegisterOption。Wave 1 helper。
+// mergeRegisterOptions 合并多个 RegisterOption。
 func mergeRegisterOptions(opts ...RegisterOption) registerConfig {
 	var c registerConfig
 	for _, o := range opts {
@@ -72,26 +74,130 @@ func mergeRegisterOptions(opts ...RegisterOption) registerConfig {
 //   - 创建 gRPC server / gin engine（per port）
 //   - 把 portMap 存进 m.portMap
 //
-// Wave 1 agent B 实现。详见 docs/10 §四 实现细节代码块。
+// 详见 docs/10 §四 实现细节代码块。
 func (m *MultiResource) processSubApp(app SubApp, opts ...RegisterOption) error {
-	return errNotImplemented
+	cfg := mergeRegisterOptions(opts...)
+
+	specs := app.Listeners()
+	portMap := cfg.portMap
+	if portMap == nil {
+		portMap = PortMap{}
+		for _, spec := range specs {
+			portMap[spec.Name] = spec.PreferredPort
+		}
+		log.Warn().
+			Str("subapp", app.Name()).
+			Interface("ports", portMap).
+			Msg("no explicit OnPorts; using PreferredPort fallback")
+	}
+
+	for _, spec := range specs {
+		port, ok := portMap[spec.Name]
+		if !ok {
+			return fmt.Errorf("subapp=%s listener=%s: no port in OnPorts",
+				app.Name(), spec.Name)
+		}
+
+		if port != spec.PreferredPort {
+			if cfg.requirePreferred {
+				return fmt.Errorf(
+					"subapp=%s listener=%s: port %d != required preferred %d",
+					app.Name(), spec.Name, port, spec.PreferredPort)
+			}
+			log.Warn().
+				Str("subapp", app.Name()).Str("listener", spec.Name).
+				Int("preferred", spec.PreferredPort).Int("actual", port).
+				Msg("port differs from preferred (override accepted)")
+		}
+
+		if existingSubapp, existingListener := m.lookupListenerByPort(port); existingSubapp != "" {
+			return fmt.Errorf(
+				"port %d already taken by subapp=%s listener=%s",
+				port, existingSubapp, existingListener)
+		}
+
+		switch spec.Protocol {
+		case "grpc":
+			m.GrpcServerOn(port)
+		case "http":
+			m.HttpRouterOn(port)
+		default:
+			return fmt.Errorf("subapp=%s listener=%s: unknown protocol %q (want grpc|http)",
+				app.Name(), spec.Name, spec.Protocol)
+		}
+
+		m.mu.Lock()
+		if m.portMap == nil {
+			m.portMap = map[string]int{}
+		}
+		m.portMap[app.Name()+"."+spec.Name] = port
+		m.mu.Unlock()
+	}
+	return nil
 }
 
 // subappForListener 给定 port 查所属 sub-app 名字（反向 portMap）。
-// 用于 interceptor 注入 subapp label。Wave 1 agent B 实现。
+// 用于 interceptor 注入 subapp label。
 func (m *MultiResource) subappForListener(port int) string {
-	return ""
+	subapp, _ := m.lookupListenerByPort(port)
+	return subapp
 }
 
-// GrpcServerOn 返回 port 对应的 *grpc.Server，按需创建并挂上所有 interceptor。
-// 详见 docs/12 §一 注入 chain。Wave 1 agent B 实现（interceptor 函数本身在
-// observability.go 由 Wave 2 agent E 实现；Wave 1 这里直接引用其签名）。
+// lookupListenerByPort scans m.portMap for an entry whose value matches port.
+// Returns (subapp, listenerName) or ("", "") if not found.
+// Holds m.mu while iterating.
+func (m *MultiResource) lookupListenerByPort(port int) (string, string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, p := range m.portMap {
+		if p != port {
+			continue
+		}
+		// key format: "subapp.listener" (listener name may itself contain dots
+		// in pathological cases — split on the first dot only).
+		if idx := strings.Index(key, "."); idx >= 0 {
+			return key[:idx], key[idx+1:]
+		}
+		return key, ""
+	}
+	return "", ""
+}
+
+// GrpcServerOn 返回 port 对应的 *grpc.Server，按需创建。
+// 详见 docs/12 §一 注入 chain。
 func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.Server {
-	return nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.grpcServers == nil {
+		m.grpcServers = map[int]*grpc.Server{}
+	}
+	if s, ok := m.grpcServers[port]; ok {
+		return s
+	}
+	// TODO(wave-2): inject panic-recover / subapp-logger / metric interceptors here
+	// (see docs/12-framework-observability.md §一). Until then we return a
+	// plain server constructed with caller-supplied opts only.
+	s := grpc.NewServer(opts...)
+	m.grpcServers[port] = s
+	return s
 }
 
-// HttpRouterOn 返回 port 对应的 *gin.Engine，按需创建并挂上所有 middleware。
-// 详见 docs/12 §一 中间件链。Wave 1 agent B 实现。
+// HttpRouterOn 返回 port 对应的 *gin.Engine，按需创建。
+// 详见 docs/12 §一 中间件链。
 func (m *MultiResource) HttpRouterOn(port int) *gin.Engine {
-	return nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.httpRouters == nil {
+		m.httpRouters = map[int]*gin.Engine{}
+	}
+	if e, ok := m.httpRouters[port]; ok {
+		return e
+	}
+	// TODO(wave-2): inject panic-recover / subapp-logger / metric middleware here
+	// (see docs/12-framework-observability.md §一). gin.New (not gin.Default)
+	// keeps the engine free of gin's default Logger+Recovery so wave-2 owns the
+	// chain.
+	e := gin.New()
+	m.httpRouters[port] = e
+	return e
 }

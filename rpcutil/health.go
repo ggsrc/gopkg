@@ -5,15 +5,40 @@
 // docs/12-framework-observability.md §三。
 //
 // 文件所有权：
-//   - 类型 stub（Criticality / HealthCheckable + const）→ Wave 0（我）
+//   - 类型 stub（Criticality / HealthCheckable + const）→ Wave 0
 //   - 行为实现（registerHealthCheck / healthMux / readinessHandler /
 //     livenessHandler / debugHandler）→ Wave 1 agent C
 package rpcutil
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"sort"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+// readinessCheckTimeout is the per-dep ctx timeout used by readiness/debug.
+// Aligns with docs/10 §八 readinessHandler code block.
+const readinessCheckTimeout = 2 * time.Second
+
+// depUnhealthyCounter tracks individual dep failures observed during a
+// readiness/debug evaluation. Labels: subapp / dep_name / criticality.
+// Wave 2 (observability.go) will relocate this to a central spot.
+var depUnhealthyCounter = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "mega_dep_unhealthy_total",
+		Help: "Total number of unhealthy responses observed per dependency.",
+	},
+	[]string{"subapp", "dep_name", "criticality"},
+)
+
+func init() {
+	prometheus.MustRegister(depUnhealthyCounter)
+}
 
 // Criticality 表示一个 health check 的关键性等级。
 type Criticality int
@@ -44,35 +69,188 @@ type HealthCheckable struct {
 }
 
 // registerHealthCheck 把 sub-app 的所有 HealthCheckable 注册到 framework。
-// Wave 1 agent C 实现。
+//
+// 并发安全：用 m.mu 序列化 append。
 func (m *MultiResource) registerHealthCheck(subapp string, checks []HealthCheckable) {
-	// stub: Wave 1 agent C
-	_ = subapp
-	_ = checks
+	if len(checks) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.healthChecks == nil {
+		m.healthChecks = make([]registeredHealthCheck, 0, len(checks))
+	}
+	for _, hc := range checks {
+		m.healthChecks = append(m.healthChecks, registeredHealthCheck{
+			subapp: subapp,
+			hc:     hc,
+		})
+	}
 }
 
 // healthMux 返回 /health/* 路由 mux。
-// Wave 1 agent C 实现：/health/live、/health/ready、/health/debug。
 func (m *MultiResource) healthMux() http.Handler {
-	return http.NewServeMux()
-}
-
-// readinessHandler 聚合所有 Critical dep 状态。
-// 详见 docs/10 §八 + docs/12 §三。Wave 1 agent C 实现：
-//   - startedAt == nil → 503 starting
-//   - 任一 Critical 失败 → 503 + 失败列表
-//   - 都 OK → 200 ready
-func (m *MultiResource) readinessHandler(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusServiceUnavailable)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health/live", m.livenessHandler)
+	mux.HandleFunc("/health/ready", m.readinessHandler)
+	mux.HandleFunc("/health/debug", m.debugHandler)
+	return mux
 }
 
 // livenessHandler 进程存活就 200，永远不检 dep。
 func (m *MultiResource) livenessHandler(w http.ResponseWriter, r *http.Request) {
+	_ = r
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "alive")
 }
 
-// debugHandler 返回所有 dep 的详细状态（JSON）。
-// 详见 docs/12 §三。Wave 1 agent C 实现。
-func (m *MultiResource) debugHandler(w http.ResponseWriter, r *http.Request) {
+// readinessHandler 聚合所有 Critical dep 状态。详见 docs/10 §八。
+//   - startedAt 尚未 Store → 503 starting
+//   - 任一 Critical 失败 → 503 + 失败列表
+//   - 都 OK → 200 ready
+//
+// Optional 失败仅 inc metric，不影响状态。
+func (m *MultiResource) readinessHandler(w http.ResponseWriter, r *http.Request) {
+	if m.startedAt == nil || m.startedAt.Load() == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintln(w, "starting")
+		return
+	}
+
+	// Snapshot health checks under lock to avoid racing with registerHealthCheck.
+	checks := m.snapshotHealthChecks()
+
+	failed := make([]string, 0)
+	for _, rhc := range checks {
+		err := runCheckWithTimeout(r.Context(), rhc.hc.Check, readinessCheckTimeout)
+		if err == nil {
+			continue
+		}
+		depUnhealthyCounter.
+			WithLabelValues(rhc.subapp, rhc.hc.Name, rhc.hc.Criticality.String()).
+			Inc()
+		if rhc.hc.Criticality == Critical {
+			failed = append(failed, fmt.Sprintf("%s.%s: %s", rhc.subapp, rhc.hc.Name, err))
+		}
+	}
+
+	if len(failed) > 0 {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprintln(w, "unhealthy critical deps:")
+		for _, f := range failed {
+			fmt.Fprintln(w, "  -", f)
+		}
+		return
+	}
 	w.WriteHeader(http.StatusOK)
+	fmt.Fprintln(w, "ready")
+}
+
+// debugHandler 返回所有 dep 的详细状态（JSON），SRE 用。详见 docs/12 §三。
+func (m *MultiResource) debugHandler(w http.ResponseWriter, r *http.Request) {
+	resp := healthDebugResponse{MegaName: m.appName}
+	if m.startedAt != nil {
+		resp.StartedAt = m.startedAt.Load()
+	}
+
+	checks := m.snapshotHealthChecks()
+
+	bySubApp := make(map[string][]healthCheckResult)
+	for _, rhc := range checks {
+		start := time.Now()
+		err := runCheckWithTimeout(r.Context(), rhc.hc.Check, readinessCheckTimeout)
+		result := healthCheckResult{
+			Name:        rhc.hc.Name,
+			Criticality: rhc.hc.Criticality.String(),
+			Status:      "ok",
+			DurationMs:  time.Since(start).Milliseconds(),
+		}
+		if err != nil {
+			result.Status = "error"
+			result.Error = err.Error()
+		}
+		bySubApp[rhc.subapp] = append(bySubApp[rhc.subapp], result)
+	}
+
+	names := m.orderedSubAppNames(bySubApp)
+	resp.SubApps = make([]subAppHealthDetail, 0, len(names))
+	for _, name := range names {
+		resp.SubApps = append(resp.SubApps, subAppHealthDetail{
+			Name:         name,
+			HealthChecks: bySubApp[name],
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// snapshotHealthChecks 在锁内返回 m.healthChecks 的浅拷贝。
+func (m *MultiResource) snapshotHealthChecks() []registeredHealthCheck {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.healthChecks) == 0 {
+		return nil
+	}
+	out := make([]registeredHealthCheck, len(m.healthChecks))
+	copy(out, m.healthChecks)
+	return out
+}
+
+// orderedSubAppNames 收集所有出现过的 subapp 名字（来自 m.subApps + extra
+// map），按字母序排序，保证 debug 输出稳定。
+func (m *MultiResource) orderedSubAppNames(extra map[string][]healthCheckResult) []string {
+	seen := make(map[string]struct{}, len(extra)+len(m.subApps))
+	m.mu.Lock()
+	for _, rs := range m.subApps {
+		if rs.app == nil {
+			continue
+		}
+		seen[rs.app.Name()] = struct{}{}
+	}
+	m.mu.Unlock()
+	for name := range extra {
+		seen[name] = struct{}{}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// runCheckWithTimeout 用独立的 derived ctx 跑一次 Check 并保证 timeout 生效。
+func runCheckWithTimeout(parent context.Context, fn func(context.Context) error, timeout time.Duration) error {
+	if fn == nil {
+		return nil
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+	return fn(ctx)
+}
+
+// ---- JSON shape for /health/debug (docs/12 §三) --------------------------
+
+type healthDebugResponse struct {
+	MegaName  string               `json:"mega_name"`
+	StartedAt *time.Time           `json:"started_at"`
+	SubApps   []subAppHealthDetail `json:"subapps"`
+}
+
+type subAppHealthDetail struct {
+	Name         string              `json:"name"`
+	HealthChecks []healthCheckResult `json:"health_checks"`
+}
+
+type healthCheckResult struct {
+	Name        string `json:"name"`
+	Criticality string `json:"criticality"`
+	Status      string `json:"status"`
+	Error       string `json:"error,omitempty"`
+	DurationMs  int64  `json:"duration_ms"`
 }

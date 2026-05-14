@@ -11,6 +11,14 @@ package rpcutil
 
 import (
 	"context"
+	"fmt"
+	"runtime/debug"
+	"time"
+
+	gocron "github.com/go-co-op/gocron/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 // CronJob 描述 sub-app 的一个定时任务。
@@ -38,26 +46,137 @@ type Scheduler interface {
 	Stop(ctx context.Context) error
 }
 
+// ---- cron metrics ----
+//
+// 这些 var 在 Wave 2 可能被搬到 observability.go 统一管理；wave 1 先就近声明，
+// init() 注册到 DefaultRegisterer（业务 mega-app 的 /metrics 会被一并采集）。
+
+var (
+	cronPanicCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_cron_panic_total",
+			Help: "Number of times a cron job panicked (recovered).",
+		},
+		[]string{"subapp", "job"},
+	)
+	cronErrorCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "mega_cron_error_total",
+			Help: "Number of times a cron job returned a non-nil error.",
+		},
+		[]string{"subapp", "job"},
+	)
+	cronDurationHist = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "mega_cron_duration_seconds",
+			Help:    "Cron job execution duration in seconds.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"subapp", "job"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(cronPanicCounter, cronErrorCounter, cronDurationHist)
+}
+
 // registerCron 把 sub-app 的所有 CronJob 注册到 framework scheduler。
 // 自动加 "{subapp}." 前缀，校验 fullName 唯一，包装 wrapCronFn。
-// MEGA_DISABLE_CRON=true 时跳过。Wave 1 agent D 实现。
+// MEGA_DISABLE_CRON=true 时跳过。
 func (m *MultiResource) registerCron(subapp string, jobs []CronJob) error {
-	return errNotImplemented
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.cronJobs == nil {
+		m.cronJobs = map[string]bool{}
+	}
+
+	for _, j := range jobs {
+		fullName := subapp + "." + j.Name
+		if _, exists := m.cronJobs[fullName]; exists {
+			return fmt.Errorf("duplicate cron job: %s", fullName)
+		}
+		if m.cronDisabled {
+			log.Info().Str("job", fullName).Msg("MEGA_DISABLE_CRON=true; cron skipped")
+			continue
+		}
+		wrapped := m.wrapCronFn(subapp, fullName, j.Fn)
+		if err := m.scheduler.RegisterCronJob(fullName, j.Schedule, wrapped); err != nil {
+			return fmt.Errorf("register cron %s: %w", fullName, err)
+		}
+		m.cronJobs[fullName] = true
+	}
+	return nil
 }
 
 // wrapCronFn 把业务 Fn 包装成调度器需要的 func()：
 //   - 注入 sub-app ctx（zerolog 带 subapp 字段）
 //   - defer recover()，panic 时上报 mega_cron_panic_total
 //   - 上报 mega_cron_duration_seconds_bucket 和 mega_cron_error_total
-//
-// Wave 1 agent D 实现。详见 docs/10 §七 wrapCronFn 代码块。
 func (m *MultiResource) wrapCronFn(subapp, name string, fn func(context.Context) error) func() {
-	return func() {}
+	return func() {
+		ctx := m.SubAppContext(subapp)
+		defer func() {
+			if r := recover(); r != nil {
+				log.Error().
+					Str("subapp", subapp).
+					Str("job", name).
+					Interface("panic", r).
+					Bytes("stack", debug.Stack()).
+					Msg("cron panic recovered")
+				cronPanicCounter.WithLabelValues(subapp, name).Inc()
+			}
+		}()
+		start := time.Now()
+		err := fn(ctx)
+		cronDurationHist.WithLabelValues(subapp, name).Observe(time.Since(start).Seconds())
+		if err != nil {
+			zerolog.Ctx(ctx).Error().Err(err).Str("job", name).Msg("cron failed")
+			cronErrorCounter.WithLabelValues(subapp, name).Inc()
+		}
+	}
+}
+
+// ---- default Scheduler impl backed by gocron v2 ----
+
+type defaultScheduler struct {
+	sched gocron.Scheduler
 }
 
 // newDefaultScheduler 返回基于 gocron v2 的默认 Scheduler 实现。
-// Wave 1 agent D 实现：包装 gocron.NewScheduler(...) + 翻译 schedule string
-// 到 gocron 的 CronJob definition。
 func newDefaultScheduler() (Scheduler, error) {
-	return nil, errNotImplemented
+	s, err := gocron.NewScheduler()
+	if err != nil {
+		return nil, fmt.Errorf("gocron new scheduler: %w", err)
+	}
+	return &defaultScheduler{sched: s}, nil
+}
+
+func (d *defaultScheduler) RegisterCronJob(name, schedule string, fn func()) error {
+	_, err := d.sched.NewJob(
+		gocron.CronJob(schedule, false),
+		gocron.NewTask(fn),
+		gocron.WithName(name),
+	)
+	if err != nil {
+		return fmt.Errorf("gocron new job %s: %w", name, err)
+	}
+	return nil
+}
+
+func (d *defaultScheduler) Start() {
+	d.sched.Start()
+}
+
+func (d *defaultScheduler) Stop(ctx context.Context) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- d.sched.Shutdown()
+	}()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
