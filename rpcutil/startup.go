@@ -30,16 +30,18 @@ import (
 //   - HealthServerShutdownTimeout: Phase 6 health + metric server.
 //   - HTTPServerReadHeaderTimeout: hard cap on time spent reading request
 //     headers — protects against Slowloris-style attacks (gosec G112).
-//   - HTTPServerReadTimeout / WriteTimeout / IdleTimeout: bound slow-body
-//     attacks beyond Slowloris (Round-7 review S-008). Per-request handlers
-//     can still override these via gin middleware if they need long polls.
+//   - HTTPServerReadTimeout: bounds slow-body uploads on sub-app HTTP
+//     listeners (Round-7 S-008).
+//   - HTTPServerIdleTimeout: cleans up idle keep-alive conns.
+//   - WriteTimeout intentionally NOT set as a framework default — would
+//     break SSE / server-streaming responses / large file downloads. Per-
+//     handler middleware can still set it where appropriate (Round-8 #3).
 const (
 	GracefulStopTimeout         = 30 * time.Second
 	ShutdownPhaseTimeout        = 30 * time.Second
 	HealthServerShutdownTimeout = 5 * time.Second
 	HTTPServerReadHeaderTimeout = 10 * time.Second
 	HTTPServerReadTimeout       = 60 * time.Second
-	HTTPServerWriteTimeout      = 60 * time.Second
 	HTTPServerIdleTimeout       = 120 * time.Second
 )
 
@@ -103,6 +105,10 @@ func (m *MultiResource) Start(ctx context.Context) error {
 // 进程退出自动释放（GC 关闭 fd）。
 func (m *MultiResource) phase1BindListeners(ctx context.Context) error {
 	_ = ctx
+	// Round-8 cross-review #6: flip phase1BindStarted so any concurrent
+	// GrpcServerOn / HttpRouterOn call from a misbehaving sub-app refuses
+	// to create a fresh server — would leak (no listener gets bound for it).
+	m.phase1BindStarted.Store(true)
 	// Snapshot the port lists under m.mu, then drop the lock for the blocking
 	// net.Listen syscalls — concurrent /metrics scrape via lockedGatherers
 	// (and any other reader of m.mu) is not blocked for the entire bind loop.
@@ -263,8 +269,8 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 			Handler:           eng,
 			ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
 			ReadTimeout:       HTTPServerReadTimeout,
-			WriteTimeout:      HTTPServerWriteTimeout,
-			IdleTimeout:       HTTPServerIdleTimeout,
+			// WriteTimeout intentionally unset — see constant block godoc.
+			IdleTimeout: HTTPServerIdleTimeout,
 		}
 		m.httpServers[port] = srv
 		httpPairs[port] = httpPair{eng: eng, lis: lis, srv: srv}
@@ -294,8 +300,8 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 		Handler:           m.healthMux(),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
 		ReadTimeout:       HTTPServerReadTimeout,
-		WriteTimeout:      HTTPServerWriteTimeout,
 		IdleTimeout:       HTTPServerIdleTimeout,
+		// WriteTimeout intentionally unset.
 	}
 	m.mu.Lock()
 	m.healthServer = healthSrv
@@ -309,14 +315,15 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 	// /metrics (聚合所有 sub-app registry + DefaultGatherer).
 	// Wraps the gatherer slice in a lockedGatherers so Prometheus scrapes
 	// don't race with MetricRegistryFor appends (PR #115 review G4 fix).
+	// /metrics — only ReadHeaderTimeout + IdleTimeout. NO Read/Write Timeout:
+	// high-cardinality scrapes (80 sub-app × hundreds of series) can legitimately
+	// exceed minute-scale write durations under load (Round-8 cross-review #3).
 	metricSrv := &http.Server{
 		Addr: fmt.Sprintf(":%d", metricListenPort),
 		Handler: promhttp.HandlerFor(m.gatherer(), promhttp.HandlerOpts{
 			ErrorHandling: promhttp.ContinueOnError,
 		}),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
-		ReadTimeout:       HTTPServerReadTimeout,
-		WriteTimeout:      HTTPServerWriteTimeout,
 		IdleTimeout:       HTTPServerIdleTimeout,
 	}
 	m.mu.Lock()
@@ -373,6 +380,8 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 // Split into a method for testability and to keep Stop's surface area minimal.
 func (m *MultiResource) doStop(ctx context.Context) {
 	log.Info().Str("app", m.appName).Msg("mega stopping")
+	// Round-8 cross-review #6: gate further server creation.
+	m.shutdownStarted.Store(true)
 
 	// Phase 1: readiness off — flip readiness to 503 so k8s endpoints
 	// controller starts removing this pod from the Service. DO NOT yet cancel
@@ -382,6 +391,26 @@ func (m *MultiResource) doStop(ctx context.Context) {
 	// mid-flight while traffic was still arriving, wasting the drain delay.
 	if m.startedAt != nil {
 		m.startedAt.Store(nil)
+	}
+
+	// Phase 1.3: begin scheduler shutdown (NON-blocking). gocron stops
+	// issuing new ticks immediately; in-flight Fns continue under rootCtx
+	// (still alive). Without this, gocron could tick a fresh job during the
+	// drain delay and Phase 1.7 would cancel it ~ms after launch — "light a
+	// fire then pull the plug". Run it async so drain + rootCancel + Phase 2
+	// proceed concurrently with the gocron Shutdown drain. Phase 3 joins.
+	// Addresses PR #115 Round-8 cross-review #1.
+	var schedDone chan struct{}
+	if !m.cronDisabled && m.scheduler != nil {
+		schedDone = make(chan struct{})
+		go func() {
+			defer close(schedDone)
+			sCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
+			defer cancel()
+			if err := m.scheduler.Stop(sCtx); err != nil {
+				log.Warn().Err(err).Msg("scheduler stop error")
+			}
+		}()
 	}
 
 	// Phase 1.5: drain delay. k8s readinessProbe is now seeing 503; let the
@@ -414,13 +443,16 @@ func (m *MultiResource) doStop(ctx context.Context) {
 	// Phase 2: grpc/http graceful stop in parallel
 	m.stopServers(ctx)
 
-	// Phase 3: stop cron — capped at min(ctx remaining, ShutdownPhaseTimeout).
-	if !m.cronDisabled && m.scheduler != nil {
-		sCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
-		if err := m.scheduler.Stop(sCtx); err != nil {
-			log.Warn().Err(err).Msg("scheduler stop error")
+	// Phase 3: join the scheduler-shutdown goroutine started in Phase 1.3.
+	// gocron.Shutdown blocks until in-flight Fns return; Phase 1.7 rootCancel
+	// already told them to exit, so this usually completes quickly. Cap the
+	// wait so a misbehaving cron can't hold up the rest of shutdown forever.
+	if schedDone != nil {
+		select {
+		case <-schedDone:
+		case <-time.After(ShutdownPhaseTimeout):
+			log.Warn().Msg("scheduler shutdown did not complete by Phase 3 deadline; continuing")
 		}
-		cancel()
 	}
 
 	// Phase 4: sub-app Close in parallel — only initialized sub-apps. Each

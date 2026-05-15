@@ -126,6 +126,15 @@ type MultiResource struct {
 	startedAt  *atomic.Pointer[time.Time]
 	closeFuncs []func(context.Context) error
 
+	// phase1BindStarted flips true when Stop's Phase 1 readiness-off OR
+	// Start's phase1BindListeners begins — used by GrpcServerOn/HttpRouterOn
+	// to refuse late "create new server" calls that would leak a server
+	// without a corresponding bound listener (Round-8 cross-review #6).
+	// shutdownStarted flips true when Stop begins; same purpose during the
+	// shutdown half of the lifecycle.
+	phase1BindStarted atomic.Bool
+	shutdownStarted   atomic.Bool
+
 	// stopOnce ensures Stop() runs its 6 phases at most once even if it is
 	// invoked from multiple paths (typical: Start() returns after ctx.Done
 	// AND main's signal handler also calls Stop). Without this, sub-app
@@ -629,6 +638,16 @@ func (m *MultiResource) RecordSubAppVersion(subapp, version string) {
 // 用 package-level sync.Once 保证 MustRegister 只执行一次 — 修复了原版 per-instance
 // sync.Once 在多 MultiResource 实例 (典型: tests) 下触发 "duplicate metric" panic
 // 的 bug (F1)。每个实例只往 gauge 里 Set 标签值，互不干扰。
+//
+// PROCESS-SINGLETON CAVEAT (Round-8 cross-review #5): because the gauge is
+// shared across the entire process, two concurrent MultiResource instances
+// registering the same sub-app name (typical only in tests / hot-reload —
+// production is one-mega-per-process) will trample each other's labels.
+// Instance A's DeletePartialMatch{subapp=X} will erase the (X, v) series
+// instance B just wrote. Production never triggers this; tests using >1
+// MultiResource MUST either use unique sub-app names or accept that the
+// last writer wins. A future refactor could scope the gauge to a per-instance
+// prometheus.Registry, at the cost of breaking the package-level Once.
 var (
 	subAppVersionGauge     *prometheus.GaugeVec
 	subAppVersionGaugeOnce sync.Once

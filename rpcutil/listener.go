@@ -184,14 +184,23 @@ func lookupListenerLocked(portMap map[string]int, port int) (string, string) {
 // GrpcServerOn 返回 port 对应的 *grpc.Server，按需创建。
 // 详见 docs/12 §一 注入 chain。
 //
-// Defensive defaults applied (caller-supplied opts win on conflict — placed
-// AFTER the defaults in the slice):
-//   - MaxRecvMsgSize 8 MiB (vs grpc-go default 4 MiB; bounds payload size).
+// Defensive defaults (caller-supplied opts win on conflict — placed AFTER the
+// defaults in the slice):
+//   - MaxRecvMsgSize 8 MiB (grpc-go default is 4 MiB; bounds payload size).
+//     Sub-apps doing batch upload / image / indexer payloads MUST override
+//     with grpc.MaxRecvMsgSize(N) — see README §gRPC defaults.
 //   - MaxConcurrentStreams 1024 (cap goroutine fan-out from one client).
 //   - Keepalive enforcement: reject clients pinging more often than 30s.
-//   - Keepalive params: probe idle conns + drop stale connections.
+//   - Keepalive params: MaxConnectionIdle 5min (close unused conns) + ping
+//     probe Time/Timeout (detect half-dead conns).
 //
-// Addresses PR #115 Round-7 review S-001 (gRPC DoS hardening).
+// Intentionally NOT applied (would force long-lived streaming clients to
+// reconnect on a fixed cadence, surprising sub-apps doing SSE / server-
+// streaming RPC / pub-sub fan-out):
+//   - MaxConnectionAge (no default; opt-in only)
+//
+// Addresses PR #115 Round-7 S-001 + Round-8 cross-review #2 (drop opinionated
+// MaxConnectionAge).
 func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.Server {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -200,6 +209,17 @@ func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.
 	}
 	if s, ok := m.grpcServers[port]; ok {
 		return s
+	}
+	// Round-8 cross-review #6: reject post-Start creation. routeRegistry.GRPC
+	// (called inside Phase 2 RegisterRoutes) only ever LOOKS UP servers
+	// already-created via Register's processSubApp path, so it should hit
+	// the `if s, ok := m.grpcServers[port]; ok` branch above. A late call
+	// (e.g. from a misbehaving sub-app Init that tries to register a brand-
+	// new port) would create a server whose listener Phase 1 has already
+	// missed — return nil so the caller fails fast.
+	if m.shutdownStarted.Load() || m.phase1BindStarted.Load() {
+		log.Warn().Int("port", port).Msg("GrpcServerOn called after Phase 1 began; refusing to create new server")
+		return nil
 	}
 	m.ensureGrpcPrometheus()
 	subapp := lookupSubappLocked(m.portMap, port)
@@ -212,9 +232,9 @@ func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.
 		}),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle: 5 * time.Minute,
-			MaxConnectionAge:  30 * time.Minute,
-			Time:              1 * time.Minute,
-			Timeout:           20 * time.Second,
+			// MaxConnectionAge intentionally not set — see godoc.
+			Time:    1 * time.Minute,
+			Timeout: 20 * time.Second,
 		}),
 		grpc.ChainUnaryInterceptor(
 			m.subappLoggerUnaryInterceptor(subapp),
@@ -241,6 +261,10 @@ const (
 
 // HttpRouterOn 返回 port 对应的 *gin.Engine，按需创建。
 // 详见 docs/12 §一 中间件链。
+//
+// Round-8 cross-review #6: refuses to create a new engine once Phase 1 has
+// begun (would leak a router with no listener). Returns nil in that case;
+// caller should pre-check m.startedAt or treat nil as configuration error.
 func (m *MultiResource) HttpRouterOn(port int) *gin.Engine {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -249,6 +273,10 @@ func (m *MultiResource) HttpRouterOn(port int) *gin.Engine {
 	}
 	if e, ok := m.httpRouters[port]; ok {
 		return e
+	}
+	if m.shutdownStarted.Load() || m.phase1BindStarted.Load() {
+		log.Warn().Int("port", port).Msg("HttpRouterOn called after Phase 1 began; refusing to create new engine")
+		return nil
 	}
 	// Inline lookup to avoid re-entering m.mu (m.subappForListener locks);
 	// safe because we already hold m.mu. May be "" if processSubApp hasn't

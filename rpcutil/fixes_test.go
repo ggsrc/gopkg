@@ -21,6 +21,7 @@ package rpcutil
 import (
 	"bytes"
 	"context"
+	"net"
 	"net/http"
 	"os"
 	"sync"
@@ -33,6 +34,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
 )
 
 // ---- F3: normalize app name -----------------------------------------------
@@ -647,4 +649,166 @@ func silenceLogger(t *testing.T) {
 	orig := log.Logger
 	log.Logger = zerolog.Nop()
 	t.Cleanup(func() { log.Logger = orig })
+}
+
+// ============================================================================
+// Round-8 cross-review pins (after Round-7 first-pass landed ee62d6a).
+// ============================================================================
+
+// Y1 (Round-8 #1 + Round-7 O-006): Phase ordering — scheduler.Stop fires
+// BEFORE drain delay; rootCancel fires AFTER drain delay. A refactor that
+// reverts either ordering must trip this test.
+func TestStopPhaseOrdering_SchedulerBeforeDrain_RootCancelAfterDrain(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+	withTempHealthPorts(t)
+
+	m := newStartupTestMR(t)
+	m.appName = "ord-mega"
+	m.preStopDrainDelay = 200 * time.Millisecond
+
+	var (
+		schedStopAt    atomic.Int64
+		rootCanceledAt atomic.Int64
+	)
+	rootCtx, cancel := context.WithCancel(context.Background())
+	m.rootCtx, m.rootCancel = rootCtx, func() {
+		rootCanceledAt.Store(time.Now().UnixNano())
+		cancel()
+	}
+	m.scheduler = &orderingMockScheduler{
+		onStop: func() { schedStopAt.Store(time.Now().UnixNano()) },
+	}
+	m.cronDisabled = false
+
+	// Phase4 needs startedAt; faking it directly bypasses Start.
+	now := time.Now()
+	m.startedAt.Store(&now)
+	drainStart := time.Now()
+	m.doStop(context.Background())
+
+	sched := schedStopAt.Load()
+	cancelTime := rootCanceledAt.Load()
+	if sched == 0 {
+		t.Fatal("scheduler.Stop was never called")
+	}
+	if cancelTime == 0 {
+		t.Fatal("rootCancel was never called")
+	}
+	// scheduler must fire BEFORE drain ends.
+	drainEnd := drainStart.Add(m.preStopDrainDelay).UnixNano()
+	if sched >= drainEnd {
+		t.Errorf("scheduler.Stop fired at %d, after drain deadline %d — should be BEFORE drain",
+			sched, drainEnd)
+	}
+	// rootCancel must fire AFTER drain ends (within tolerance).
+	if cancelTime < drainEnd-int64(50*time.Millisecond) {
+		t.Errorf("rootCancel fired at %d, before drain deadline %d — should be AFTER drain",
+			cancelTime, drainEnd)
+	}
+	// And scheduler.Stop < rootCancel.
+	if sched > cancelTime {
+		t.Errorf("scheduler stopped at %d AFTER rootCancel %d — order inverted", sched, cancelTime)
+	}
+}
+
+type orderingMockScheduler struct {
+	onStop func()
+}
+
+func (s *orderingMockScheduler) RegisterCronJob(string, string, func()) error { return nil }
+func (s *orderingMockScheduler) Start()                                       {}
+func (s *orderingMockScheduler) Stop(context.Context) error {
+	if s.onStop != nil {
+		s.onStop()
+	}
+	return nil
+}
+
+// Y2 (Round-8 #4 + Round-7 O-001): DeletePartialMatch erases old version
+// series when a sub-app records a new SHA. Without the delete, both old and
+// new (subapp, version) series sit at 1, breaking
+// `count by (subapp)(mega_subapp_version == 1)`.
+func TestSubAppVersionGauge_OldSeriesRemovedOnRevision(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("ver-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+	if err := m.Register(newMultiFakeApp("rotapp", 41001), OnPorts(PortMap{"l0": 41001})); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	g := ensureSubAppVersionGauge()
+	// Snapshot baseline counts (other tests may have run; we only care that
+	// our specific labels appear/disappear correctly).
+	want := func(subapp, version string, expect float64) {
+		t.Helper()
+		got := testutil.ToFloat64(g.WithLabelValues(subapp, version))
+		if got != expect {
+			t.Errorf("gauge(%q, %q) = %v, want %v", subapp, version, got, expect)
+		}
+	}
+
+	m.RecordSubAppVersion("rotapp", "sha-OLD")
+	m.registerSubAppVersionMetric()
+	want("rotapp", "sha-OLD", 1)
+
+	// Rotate to a new SHA — the old series must drop to 0 (after Delete) and
+	// the new must be 1.
+	m.RecordSubAppVersion("rotapp", "sha-NEW")
+	m.registerSubAppVersionMetric()
+	want("rotapp", "sha-OLD", 0)
+	want("rotapp", "sha-NEW", 1)
+}
+
+// Y3 (Round-8 #4 + Round-7 C-002): phase1BindListeners must NOT hold m.mu
+// across the blocking net.Listen syscalls. Concurrent readers of m.mu (e.g.
+// /metrics scrape via lockedGatherers, MetricRegistryFor) MUST be able to
+// progress during Phase 1. We exercise that by spinning a hot reader against
+// m.mu while phase1BindListeners runs; under the lock-holding regression the
+// reader's progress count stays at 0.
+func TestPhase1BindListeners_DoesNotHoldMuAcrossListen(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m := newStartupTestMR(t)
+	ports := pickFreePorts(t, 4)
+	for _, p := range ports {
+		m.grpcServers[p] = grpc.NewServer()
+	}
+
+	// Hot reader: spam MetricRegistryFor (takes m.mu).
+	var progress atomic.Int64
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = m.MetricRegistryFor("hot-reader")
+				progress.Add(1)
+			}
+		}
+	}()
+
+	// Run bind concurrently. With lock held across syscall, MetricRegistryFor
+	// would stall until phase1 returns — we want to see progress > 0 mid-flight.
+	if err := m.phase1BindListeners(context.Background()); err != nil {
+		t.Fatalf("phase1BindListeners: %v", err)
+	}
+	close(stop)
+	<-done
+
+	if progress.Load() == 0 {
+		t.Errorf("reader made zero progress — phase1 likely holds m.mu across net.Listen")
+	}
+
+	// Clean up the bound listeners.
+	for _, l := range m.grpcListeners {
+		_ = l.(net.Listener).Close()
+	}
 }
