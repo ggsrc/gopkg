@@ -94,7 +94,13 @@ type MultiResource struct {
 	migrationMode bool
 
 	subApps []registeredSubApp
-	portMap map[string]int // "subapp.listener" → port
+	// initializedApps tracks the subset of subApps that successfully completed
+	// Init (and thus may need Close on shutdown). Populated by phase2InitSubApps;
+	// read by Stop's Phase 4. Decoupled from subApps so a Register'd-but-never-
+	// Init'd sub-app does not get Close called (would panic on nil fields).
+	// Addresses PR #115 cross-review BLOCKER #1.
+	initializedApps []registeredSubApp
+	portMap         map[string]int // "subapp.listener" → port
 
 	grpcServers   map[int]*grpc.Server
 	grpcListeners map[int]any // net.Listener
@@ -122,6 +128,20 @@ type MultiResource struct {
 
 	startedAt  *atomic.Pointer[time.Time]
 	closeFuncs []func(context.Context) error
+
+	// stopOnce ensures Stop() runs its 6 phases at most once even if it is
+	// invoked from multiple paths (typical: Start() returns after ctx.Done
+	// AND main's signal handler also calls Stop). Without this, sub-app
+	// Close + DB pool Close would run twice → wpgx pgxpool panics, leaked
+	// closeFuncs side-effects. Addresses PR #115 cross-review BLOCKER #2.
+	stopOnce sync.Once
+
+	// preStopDrainDelay is the wait between Stop Phase 1 (readiness flip to
+	// 503) and Phase 2 (GracefulStop) so k8s endpoints controller has time to
+	// drop this pod from Service endpoints before we start rejecting new
+	// requests. Set via WithPreStopDrainDelay; default 0 (off).
+	// Addresses PR #115 cross-review BLOCKER #3.
+	preStopDrainDelay time.Duration
 
 	// rootCtx is the framework-lifecycle context derived from the caller's
 	// ctx passed to NewMultiResource. m.Go() uses it as the parent for the
@@ -165,14 +185,31 @@ type registeredHealthCheck struct {
 type MultiOption func(*multiConfig)
 
 type multiConfig struct {
-	appName       string
-	migrationMode bool
-	redis         redis.UniversalClient
-	dcache        *dcache.DCache
+	appName           string
+	migrationMode     bool
+	redis             redis.UniversalClient
+	dcache            *dcache.DCache
+	preStopDrainDelay time.Duration
 }
 
 func defaultMultiConfig() multiConfig {
 	return multiConfig{migrationMode: true}
+}
+
+// WithPreStopDrainDelay 配置 Stop Phase 1 完成 (readiness flip 到 503) 与 Phase 2
+// (GracefulStop) 之间的等待窗口。
+//
+// 用途: k8s endpoints controller 检测到 readinessProbe 失败到把 pod 从 Service
+// endpoints 摘除有延迟 (典型: periodSeconds × failureThreshold = 10–30s)。在该
+// 延迟窗口内 GracefulStop 会让新流量被拒绝。该 drain delay 让 readiness 状态先
+// 传播再开始停 server。
+//
+// 推荐生产值: 略大于 readinessProbe.periodSeconds × failureThreshold，例如 10s。
+// 测试 / 本地环境保留默认 0 即可。
+//
+// Addresses PR #115 cross-review BLOCKER #3.
+func WithPreStopDrainDelay(d time.Duration) MultiOption {
+	return func(c *multiConfig) { c.preStopDrainDelay = d }
 }
 
 // WithMegaAppName 设置 mega 整体的 appName（如 "airdrop-mega"）。
@@ -266,6 +303,8 @@ func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource,
 		cronJobs: map[string]bool{},
 
 		startedAt: &atomic.Pointer[time.Time]{},
+
+		preStopDrainDelay: cfg.preStopDrainDelay,
 	}
 
 	// Wire framework-lifecycle ctx (G1 + G2): everything started via m.Go uses

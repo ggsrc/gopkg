@@ -117,21 +117,56 @@ func (m *MultiResource) phase1BindListeners(ctx context.Context) error {
 }
 
 // phase2InitSubApps 对每个 sub-app 调 Init → RegisterRoutes →
-// registerHealthCheck。失败立即返回，剩余 sub-app 不再处理。
+// registerHealthCheck。
+//
+// 失败时按反向顺序对已成功 Init 的 sub-app 调用 Close (best-effort, 每个 30s ctx),
+// 然后返回 wrapped error。这保证 Init 失败循环不会泄漏已开过的 DB pool /
+// goroutine / file handle。注意:
+//   - Close 只对 Init 成功的子集调用,从未 Init 的 sub-app 不会被 Close (避免空指针 panic);
+//   - RegisterRoutes 失败时,该 sub-app 自身的 Init 已成功,所以也算 initialized;
+//   - rollback 的 Close 错误只 log,不覆盖原始 Init/RegisterRoutes 错误。
+//
+// Addresses PR #115 cross-review BLOCKER #1.
 func (m *MultiResource) phase2InitSubApps(ctx context.Context) error {
 	_ = ctx
 	apps := m.snapshotSubApps()
+	initialized := make([]registeredSubApp, 0, len(apps))
 	for _, rs := range apps {
 		if err := rs.app.Init(m); err != nil {
+			m.rollbackInitialized(initialized)
 			return fmt.Errorf("subapp=%s Init: %w", rs.app.Name(), err)
 		}
+		initialized = append(initialized, rs)
 		reg := newRouteRegistry(m, rs.app.Name(), rs.portMap)
 		if err := rs.app.RegisterRoutes(reg); err != nil {
+			m.rollbackInitialized(initialized)
 			return fmt.Errorf("subapp=%s RegisterRoutes: %w", rs.app.Name(), err)
 		}
 		m.registerHealthCheck(rs.app.Name(), rs.app.HealthChecks())
 	}
+	// Record successfully initialized sub-apps for Stop's Phase 4 — Close is
+	// only called on apps whose Init returned nil so a never-Init'd sub-app
+	// never has Close invoked.
+	m.mu.Lock()
+	m.initializedApps = append(m.initializedApps, initialized...)
+	m.mu.Unlock()
 	return nil
+}
+
+// rollbackInitialized 反向调用已 Init sub-app 的 Close,best-effort,
+// 每个独立 30s 超时。phase2InitSubApps 失败路径专用。
+func (m *MultiResource) rollbackInitialized(initialized []registeredSubApp) {
+	for i := len(initialized) - 1; i >= 0; i-- {
+		rs := initialized[i]
+		cCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
+		if err := rs.app.Close(cCtx); err != nil {
+			log.Warn().
+				Err(err).
+				Str("subapp", rs.app.Name()).
+				Msg("phase2 rollback: Close error")
+		}
+		cancel()
+	}
 }
 
 // phase3RegisterCron 注册所有 sub-app cron job 并启动 scheduler。
@@ -251,23 +286,48 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 // Stop 反向 6 阶段关停：
 //
 //  1. health off（clear startedAt → /health/ready 立刻 503 starting，
-//     让 k8s 在剩余阶段开始前先把流量摘走）。
+//     让 k8s 在剩余阶段开始前先把流量摘走）+ rootCancel。
+//     1.5 可选 drain delay (WithPreStopDrainDelay) — 让 k8s endpoints
+//     controller 把本 pod 从 Service 摘掉再开始拒绝流量。
 //  2. 并行 GracefulStop grpc / http server（每个 30s timeout，超时强 Stop/Close
 //     并 inc shutdownAbortCounter）。
 //  3. Stop cron scheduler（30s ctx）。
-//  4. SubApp.Close 反向顺序调用（30s ctx 每个）。
-//  5. closeFuncs（DB pool close 等）按 append 顺序调用（典型场景间无依赖）。
+//  4. SubApp.Close 并行（30s ctx 每个；只对 Init 成功的 sub-app 调用）。
+//  5. closeFuncs (DB pool close 等) 并行 (30s ctx 每个; 典型场景间无依赖)。
 //  6. health + metric server Shutdown（5s ctx 各）。
 //
+// 幂等: 多次调用只执行一次 (sync.Once)，后续调用立刻返回 nil。Start 在
+// <-ctx.Done() 后会调一次 Stop；main 的 signal handler 也常会调一次 Stop —
+// 这两条路径下 sub-app Close / closeFuncs 不会双触发。
+//
+// ctx 语义: 调用方传入的 ctx 用于 bound 整个 Stop 的 wall time。每个 phase
+// 用 min(ShutdownPhaseTimeout, ctx 剩余) 作为内部超时，ctx 已取消时 phase
+// 立即放弃 (best-effort)。传 context.Background() 表示无上限 (走 phase 各自的
+// 30s default)。
+//
 // 任一子阶段错误仅 log + metric，不中断后续阶段（最大努力关停）。
+//
+// 幂等性 addresses PR #115 cross-review BLOCKER #2.
+// drain delay addresses PR #115 cross-review BLOCKER #3.
+// ctx honoring addresses PR #115 cross-review HIGH #5.
+// Phase 5 parallel addresses PR #115 cross-review HIGH #6.
 func (m *MultiResource) Stop(ctx context.Context) error {
-	_ = ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.stopOnce.Do(func() { m.doStop(ctx) })
+	return nil
+}
+
+// doStop is the actual stop implementation, gated by stopOnce in Stop().
+// Split into a method for testability and to keep Stop's surface area minimal.
+func (m *MultiResource) doStop(ctx context.Context) {
 	log.Info().Str("app", m.appName).Msg("mega stopping")
 
 	// Phase 1: health off + cancel framework rootCtx so every background
-	// goroutine started via m.Go observes ctx.Done() and exits its retry loop
-	// instead of competing with the remaining shutdown phases. Addresses PR
-	// #115 review G1 + G2 (gemini).
+	// goroutine started via m.Go (and now every cron Fn via wrapCronFn)
+	// observes ctx.Done() and exits its retry loop instead of competing with
+	// the remaining shutdown phases. Addresses PR #115 review G1 + G2.
 	if m.startedAt != nil {
 		m.startedAt.Store(nil)
 	}
@@ -275,34 +335,53 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 		m.rootCancel()
 	}
 
-	// Phase 2: grpc/http graceful stop in parallel
-	m.stopServers()
+	// Phase 1.5: drain delay. k8s readinessProbe is now seeing 503; let the
+	// endpoints controller propagate the change to kube-proxy iptables on every
+	// node before GracefulStop starts refusing new streams. Honors caller's
+	// ctx — if Stop's ctx fires (typical: SIGKILL countdown ≈ grace period)
+	// the delay is cut short.
+	if m.preStopDrainDelay > 0 {
+		log.Info().
+			Dur("delay", m.preStopDrainDelay).
+			Msg("Stop Phase 1.5: pre-stop drain delay (readiness already 503)")
+		t := time.NewTimer(m.preStopDrainDelay)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			log.Warn().Msg("Stop ctx canceled during drain delay; proceeding")
+		}
+	}
 
-	// Phase 3: stop cron
+	// Phase 2: grpc/http graceful stop in parallel
+	m.stopServers(ctx)
+
+	// Phase 3: stop cron — capped at min(ctx remaining, ShutdownPhaseTimeout).
 	if !m.cronDisabled && m.scheduler != nil {
-		sCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
+		sCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
 		if err := m.scheduler.Stop(sCtx); err != nil {
 			log.Warn().Err(err).Msg("scheduler stop error")
 		}
 		cancel()
 	}
 
-	// Phase 4: sub-app Close in parallel. Each Close still gets its own
-	// 30s ctx; total Phase 4 time = max(Close), not Σ(Close). This keeps the
-	// 6-phase shutdown comfortably under terminationGracePeriodSeconds=90 even
-	// when many sub-apps fold in. Reverse-order semantics are dropped because
-	// the framework forbids cross-sub-app dependencies in Close (docs/11 §二);
-	// any sub-app that needs explicit teardown order does it inside its own
-	// Close body, not by relying on Close-ordering across sub-apps.
-	// Addresses PR #115 review G6 (gemini).
-	apps := m.snapshotSubApps()
+	// Phase 4: sub-app Close in parallel — only initialized sub-apps. Each
+	// Close gets its own ctx capped at min(parent remaining, 30s). Total Phase
+	// 4 time = max(Close), not Σ(Close). Reverse-order semantics are dropped
+	// because the framework forbids cross-sub-app dependencies in Close
+	// (docs/11 §二). Addresses PR #115 review G6 (gemini) and cross-review #1.
+	m.mu.Lock()
+	apps := make([]registeredSubApp, len(m.initializedApps))
+	copy(apps, m.initializedApps)
+	m.mu.Unlock()
+
 	var closeWg sync.WaitGroup
 	for _, rs := range apps {
 		rs := rs
 		closeWg.Add(1)
 		go func() {
 			defer closeWg.Done()
-			cCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
+			cCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
 			defer cancel()
 			if err := rs.app.Close(cCtx); err != nil {
 				log.Warn().Err(err).Str("subapp", rs.app.Name()).Msg("Close error")
@@ -312,16 +391,28 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 	}
 	closeWg.Wait()
 
-	// Phase 5: shared resource close funcs (e.g. DB pools)
+	// Phase 5: shared resource close funcs (DB pools, Redis, etc.) — parallel.
+	// N pools × 30s sequential exceeded typical terminationGracePeriodSeconds
+	// even when other phases fit fine. Each closeFunc gets its own ctx capped
+	// at min(parent remaining, 30s). Addresses PR #115 cross-review HIGH #6.
 	m.mu.Lock()
 	closes := make([]func(context.Context) error, len(m.closeFuncs))
 	copy(closes, m.closeFuncs)
 	m.mu.Unlock()
+	var closeFuncWg sync.WaitGroup
 	for _, fn := range closes {
-		fCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
-		_ = fn(fCtx)
-		cancel()
+		fn := fn
+		closeFuncWg.Add(1)
+		go func() {
+			defer closeFuncWg.Done()
+			fCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
+			defer cancel()
+			if err := fn(fCtx); err != nil {
+				log.Warn().Err(err).Msg("closeFunc error")
+			}
+		}()
 	}
+	closeFuncWg.Wait()
 
 	// Phase 6: health + metric server (last so SRE can scrape until end)
 	m.mu.Lock()
@@ -329,23 +420,45 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 	ms, _ := m.metricServer.(*http.Server)
 	m.mu.Unlock()
 	if hs != nil {
-		hCtx, cancel := context.WithTimeout(context.Background(), HealthServerShutdownTimeout)
+		hCtx, cancel := phaseCtx(ctx, HealthServerShutdownTimeout)
 		_ = hs.Shutdown(hCtx)
 		cancel()
 	}
 	if ms != nil {
-		mCtx, cancel := context.WithTimeout(context.Background(), HealthServerShutdownTimeout)
+		mCtx, cancel := phaseCtx(ctx, HealthServerShutdownTimeout)
 		_ = ms.Shutdown(mCtx)
 		cancel()
 	}
 
 	log.Info().Msg("mega stopped")
-	return nil
+}
+
+// phaseCtx returns a context for a single Stop phase whose deadline is
+// min(parent deadline, fallback duration from now). If parent has no deadline,
+// the fallback is used directly. Callers must invoke the returned CancelFunc.
+func phaseCtx(parent context.Context, fallback time.Duration) (context.Context, context.CancelFunc) {
+	if dl, ok := parent.Deadline(); ok {
+		remaining := time.Until(dl)
+		if remaining <= 0 {
+			// Parent ctx already past deadline — return a pre-canceled child
+			// so the phase body falls through immediately.
+			c, cancel := context.WithCancel(parent)
+			cancel()
+			return c, func() {}
+		}
+		if remaining < fallback {
+			return context.WithTimeout(parent, remaining)
+		}
+	}
+	return context.WithTimeout(parent, fallback)
 }
 
 // stopServers 在 Phase 2 并行 GracefulStop grpc + http server。
 // 超时 → 强制 Stop/Close 并 inc shutdownAbortCounter(subapp, "grpc"|"http").
-func (m *MultiResource) stopServers() {
+//
+// parent ctx 用于 bound 每个 server 的 graceful 等待 — 当 Stop 的整体 ctx
+// 已经超时时，所有 in-flight server 立即降级到强 Stop/Close 而不再等。
+func (m *MultiResource) stopServers(parent context.Context) {
 	m.mu.Lock()
 	grpcSnapshot := make(map[int]*grpc.Server, len(m.grpcServers))
 	for p, s := range m.grpcServers {
@@ -365,6 +478,8 @@ func (m *MultiResource) stopServers() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			gCtx, cancel := phaseCtx(parent, GracefulStopTimeout)
+			defer cancel()
 			done := make(chan struct{})
 			go func() {
 				srv.GracefulStop()
@@ -373,7 +488,7 @@ func (m *MultiResource) stopServers() {
 			select {
 			case <-done:
 				log.Info().Int("port", port).Msg("grpc stopped gracefully")
-			case <-time.After(GracefulStopTimeout):
+			case <-gCtx.Done():
 				log.Warn().Int("port", port).Msg("grpc graceful stop timeout; forcing")
 				srv.Stop()
 				shutdownAbortCounter.WithLabelValues(m.subAppByPort(port), "grpc").Inc()
@@ -385,7 +500,7 @@ func (m *MultiResource) stopServers() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sCtx, cancel := context.WithTimeout(context.Background(), GracefulStopTimeout)
+			sCtx, cancel := phaseCtx(parent, GracefulStopTimeout)
 			defer cancel()
 			err := srv.Shutdown(sCtx)
 			if err == nil {

@@ -414,9 +414,9 @@ func (r *responseRecorder) WriteHeader(s int)           { r.status = s }
 func TestStopServersEmptyAndRepeated(t *testing.T) {
 	m := newStartupTestMR(t)
 	// Empty maps → no-op.
-	m.stopServers()
+	m.stopServers(context.Background())
 	// Repeated call must remain safe (Stop idempotency precondition).
-	m.stopServers()
+	m.stopServers(context.Background())
 }
 
 // ---- K: Stop is idempotent / safe to call twice ----------------------------
@@ -467,7 +467,11 @@ func TestStopSubAppCloseErrorBumpsAbort(t *testing.T) {
 	now := time.Now()
 	m.startedAt.Store(&now)
 	bad := &startupTestApp{name: "boomapp", closeErr: errors.New("nope")}
-	m.subApps = []registeredSubApp{{app: bad, portMap: PortMap{}}}
+	rs := registeredSubApp{app: bad, portMap: PortMap{}}
+	m.subApps = []registeredSubApp{rs}
+	// Stop's Phase 4 only Closes initialized sub-apps (BLOCKER #1 fix).
+	// Tests that bypass phase2 must seed initializedApps explicitly.
+	m.initializedApps = []registeredSubApp{rs}
 
 	before := testutil.ToFloat64(shutdownAbortCounter.WithLabelValues("boomapp", "close"))
 	if err := m.Stop(context.Background()); err != nil {
@@ -620,7 +624,7 @@ func TestStopServersWithLiveServersExitsCleanly(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		m.stopServers()
+		m.stopServers(context.Background())
 		close(done)
 	}()
 	select {

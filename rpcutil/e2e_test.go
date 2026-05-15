@@ -90,6 +90,14 @@ func TestE2EFullChainTwoSubApps(t *testing.T) {
 	alpha := &e2eHttpApp{name: "alpha", port: alphaPort}
 	beta := &e2eHttpApp{name: "beta", port: betaPort}
 
+	// Snapshot metric counters BEFORE exercising the path — assertions below
+	// use deltas so the test passes under `go test -count=N` (global registry
+	// accumulates across runs). Addresses reviewer M3.
+	httpCounterBefore := testutil.ToFloat64(
+		httpRequestCounter.WithLabelValues("alpha", "/hello", "GET", "200"))
+	panicCounterBefore := testutil.ToFloat64(
+		panicCounter.WithLabelValues("alpha", "http", "/boom"))
+
 	for _, app := range []*e2eHttpApp{alpha, beta} {
 		if err := m.processSubApp(app, OnPorts(PortMap{"http": app.port})); err != nil {
 			t.Fatalf("processSubApp %s: %v", app.name, err)
@@ -161,12 +169,17 @@ func TestE2EFullChainTwoSubApps(t *testing.T) {
 		t.Errorf("/metrics missing mega_panic_total (panic recover counter)")
 	}
 
-	// Direct counter check via testutil for precision.
-	if got := testutil.ToFloat64(httpRequestCounter.WithLabelValues("alpha", "/hello", "GET", "200")); got != 1 {
-		t.Errorf("httpRequestCounter alpha /hello GET 200 = %v, want 1", got)
+	// Direct counter check via testutil for precision — uses delta vs. the
+	// snapshot taken before the test exercised the path.
+	if got := testutil.ToFloat64(
+		httpRequestCounter.WithLabelValues("alpha", "/hello", "GET", "200"),
+	) - httpCounterBefore; got != 1 {
+		t.Errorf("httpRequestCounter alpha /hello GET 200 delta = %v, want 1", got)
 	}
-	if got := testutil.ToFloat64(panicCounter.WithLabelValues("alpha", "http", "/boom")); got != 1 {
-		t.Errorf("panicCounter alpha /boom = %v, want 1", got)
+	if got := testutil.ToFloat64(
+		panicCounter.WithLabelValues("alpha", "http", "/boom"),
+	) - panicCounterBefore; got != 1 {
+		t.Errorf("panicCounter alpha /boom delta = %v, want 1", got)
 	}
 
 	// Trigger graceful stop.

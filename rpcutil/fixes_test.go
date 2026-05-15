@@ -26,6 +26,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -288,10 +289,354 @@ func TestStopServersNonTimeoutErrorNotCountedAbort(t *testing.T) {
 	m.mu.Unlock()
 
 	before := testutil.ToFloat64(shutdownAbortCounter.WithLabelValues("fake", "http"))
-	m.stopServers()
+	m.stopServers(context.Background())
 	after := testutil.ToFloat64(shutdownAbortCounter.WithLabelValues("fake", "http"))
 	if after != before {
 		t.Errorf("non-timeout shutdown bumped abort counter (before=%v after=%v)", before, after)
+	}
+}
+
+// ---- X1: phase2 rollback on Init failure (BLOCKER #1) ---------------------
+
+// stubSubApp is a minimal SubApp impl with knobs to fail Init / RegisterRoutes
+// and counters to assert Close behavior. Used by the rollback / idempotent /
+// drain-delay / cron-rootCtx regression tests below.
+type stubSubApp struct {
+	name             string
+	initErr          error
+	registerRouteErr error
+	initCount        atomic.Int32
+	closeCount       atomic.Int32
+}
+
+func (s *stubSubApp) Name() string                       { return s.name }
+func (s *stubSubApp) Listeners() []ListenerSpec          { return nil }
+func (s *stubSubApp) Init(*MultiResource) error          { s.initCount.Add(1); return s.initErr }
+func (s *stubSubApp) RegisterRoutes(RouteRegistry) error { return s.registerRouteErr }
+func (s *stubSubApp) HealthChecks() []HealthCheckable    { return nil }
+func (s *stubSubApp) Cron() []CronJob                    { return nil }
+func (s *stubSubApp) Close(context.Context) error        { s.closeCount.Add(1); return nil }
+
+// errStr is a string error type to keep regression test sentinels light.
+type errStr string
+
+func (e errStr) Error() string { return string(e) }
+
+// errInjected is the sentinel used by phase2 rollback tests.
+var errInjected = errStr("injected init failure")
+
+// TestPhase2RollbackClosesPredecessorsOnInitFailure verifies cross-review BLOCKER
+// #1: when sub-app N's Init returns an error, sub-apps 0..N-1 (which had
+// successful Init) must have Close called in reverse order. Without rollback,
+// Init-failure crash loops leak DB pools / background goroutines forever.
+func TestPhase2RollbackClosesPredecessorsOnInitFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("rollback-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	good1 := &stubSubApp{name: "good1"}
+	good2 := &stubSubApp{name: "good2"}
+	bad := &stubSubApp{name: "bad", initErr: errInjected}
+
+	m.mu.Lock()
+	m.subApps = []registeredSubApp{
+		{app: good1, portMap: PortMap{}},
+		{app: good2, portMap: PortMap{}},
+		{app: bad, portMap: PortMap{}},
+	}
+	m.mu.Unlock()
+
+	if err := m.phase2InitSubApps(context.Background()); err == nil {
+		t.Fatal("expected phase2 to error on bad.Init")
+	}
+
+	if good1.closeCount.Load() != 1 {
+		t.Errorf("good1.Close called %d times, want 1", good1.closeCount.Load())
+	}
+	if good2.closeCount.Load() != 1 {
+		t.Errorf("good2.Close called %d times, want 1", good2.closeCount.Load())
+	}
+	if bad.closeCount.Load() != 0 {
+		t.Errorf("bad.Close called %d times, want 0 (Init never succeeded)", bad.closeCount.Load())
+	}
+
+	// initializedApps must remain empty so a follow-up Stop does not double-Close.
+	m.mu.Lock()
+	got := len(m.initializedApps)
+	m.mu.Unlock()
+	if got != 0 {
+		t.Errorf("initializedApps len = %d, want 0 on failed phase2", got)
+	}
+}
+
+// TestPhase2RollbackOnRegisterRoutesFailure: RegisterRoutes failing also
+// triggers rollback (Init succeeded — must Close).
+func TestPhase2RollbackOnRegisterRoutesFailure(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("rollback2-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	good := &stubSubApp{name: "good"}
+	bad := &stubSubApp{name: "bad", registerRouteErr: errInjected}
+
+	m.mu.Lock()
+	m.subApps = []registeredSubApp{
+		{app: good, portMap: PortMap{}},
+		{app: bad, portMap: PortMap{}},
+	}
+	m.mu.Unlock()
+
+	if err := m.phase2InitSubApps(context.Background()); err == nil {
+		t.Fatal("expected phase2 to error on bad.RegisterRoutes")
+	}
+	if good.closeCount.Load() != 1 {
+		t.Errorf("good.Close called %d times, want 1", good.closeCount.Load())
+	}
+	// bad's Init succeeded so it counts as initialized → must be Closed too.
+	if bad.closeCount.Load() != 1 {
+		t.Errorf("bad.Close called %d times, want 1 (Init succeeded)", bad.closeCount.Load())
+	}
+}
+
+// ---- X2: Stop is idempotent (BLOCKER #2) -----------------------------------
+
+// TestStopIsIdempotent verifies BLOCKER #2: when Stop is called multiple times
+// (typical: Start returns on <-ctx.Done() and calls Stop; main's signal handler
+// also calls Stop) the 6 phases run at most once. Each sub-app's Close runs
+// once and each closeFunc runs once.
+func TestStopIsIdempotent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("idem-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	app := &stubSubApp{name: "app"}
+	rs := registeredSubApp{app: app, portMap: PortMap{}}
+	m.mu.Lock()
+	m.subApps = []registeredSubApp{rs}
+	m.initializedApps = []registeredSubApp{rs}
+	m.mu.Unlock()
+
+	var fnCalls atomic.Int32
+	m.closeFuncs = []func(context.Context) error{
+		func(context.Context) error { fnCalls.Add(1); return nil },
+	}
+
+	_ = m.Stop(context.Background())
+	_ = m.Stop(context.Background())
+	_ = m.Stop(context.Background())
+
+	if got := app.closeCount.Load(); got != 1 {
+		t.Errorf("Close called %d times across 3 Stop invocations, want 1", got)
+	}
+	if got := fnCalls.Load(); got != 1 {
+		t.Errorf("closeFunc called %d times across 3 Stop invocations, want 1", got)
+	}
+}
+
+// ---- X3: WithPreStopDrainDelay applies (BLOCKER #3) ------------------------
+
+// TestStopPreStopDrainDelayApplied verifies BLOCKER #3: when WithPreStopDrainDelay
+// is set, Stop sleeps that long between Phase 1 (readiness flip) and Phase 2.
+func TestStopPreStopDrainDelayApplied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	const want = 80 * time.Millisecond
+	m, err := NewMultiResource(context.Background(),
+		WithMegaAppName("drain-mega"),
+		WithPreStopDrainDelay(want),
+	)
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	start := time.Now()
+	_ = m.Stop(context.Background())
+	got := time.Since(start)
+
+	if got < want {
+		t.Errorf("Stop took %v, want >= %v (drain delay missing)", got, want)
+	}
+	// 5x the configured value is a generous ceiling on macOS / CI jitter while
+	// still catching e.g. accidental WithPreStopDrainDelay = 5s default.
+	if got > 5*want {
+		t.Errorf("Stop took %v, want <= %v (drain delay too long)", got, 5*want)
+	}
+}
+
+// TestStopPreStopDrainDelayCutShortByCtx: when the caller's Stop ctx fires
+// during the drain delay, the delay is cut short — protects against a stuck
+// drain blowing past terminationGracePeriodSeconds.
+func TestStopPreStopDrainDelayCutShortByCtx(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(),
+		WithMegaAppName("drain-cut-mega"),
+		WithPreStopDrainDelay(5*time.Second),
+	)
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_ = m.Stop(ctx)
+	got := time.Since(start)
+
+	if got > 500*time.Millisecond {
+		t.Errorf("Stop with canceled ctx took %v, want < 500ms (drain ignored ctx)", got)
+	}
+}
+
+// ---- X4: cron Fn ctx tied to rootCtx (BLOCKER #4) --------------------------
+
+// TestWrapCronFnObservesRootCtxCancel: a cron Fn that loops on ctx.Done must
+// observe Stop()'s rootCancel and return promptly — before the Phase 5
+// closeFuncs run, so a long-running cron doesn't use a closed DB pool.
+func TestWrapCronFnObservesRootCtxCancel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("croncancel-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	entered := make(chan struct{})
+	exited := make(chan struct{})
+	wrapped := m.wrapCronFn("alpha", "alpha.job", func(ctx context.Context) error {
+		close(entered)
+		<-ctx.Done()
+		close(exited)
+		return ctx.Err()
+	})
+
+	go wrapped()
+
+	select {
+	case <-entered:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("wrapped cron Fn never entered within 500ms")
+	}
+
+	// Trigger rootCancel — same path Stop() takes in Phase 1.
+	m.rootCancel()
+
+	select {
+	case <-exited:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("wrapped cron Fn did not observe rootCancel within 500ms")
+	}
+}
+
+// ---- X5: Stop honors caller ctx (HIGH #5) ----------------------------------
+
+// slowCloseApp's Close blocks until released or ctx.Done, used to test that
+// Stop's caller-supplied ctx caps individual phase ctxs.
+type slowCloseApp struct {
+	stubSubApp
+	released chan struct{}
+}
+
+func (s *slowCloseApp) Close(ctx context.Context) error {
+	s.closeCount.Add(1)
+	select {
+	case <-s.released:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// TestStopCtxBoundsPhaseTimeouts verifies HIGH #5: passing a tightly-bounded
+// ctx to Stop limits each phase ctx — a sub-app's Close that ignores ctx still
+// gets unblocked by Stop's overall ctx deadline.
+func TestStopCtxBoundsPhaseTimeouts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("stopctx-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	app := &slowCloseApp{
+		stubSubApp: stubSubApp{name: "slow"},
+		released:   make(chan struct{}), // never closed: simulates hung Close
+	}
+	rs := registeredSubApp{app: app, portMap: PortMap{}}
+	m.mu.Lock()
+	m.subApps = []registeredSubApp{rs}
+	m.initializedApps = []registeredSubApp{rs}
+	m.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	_ = m.Stop(ctx)
+	got := time.Since(start)
+
+	// Without ctx honoring, Stop would wait the full ShutdownPhaseTimeout (30s).
+	if got > 1*time.Second {
+		t.Errorf("Stop took %v, want < 1s (ctx not honored)", got)
+	}
+	if app.closeCount.Load() != 1 {
+		t.Errorf("Close called %d times, want 1", app.closeCount.Load())
+	}
+}
+
+// ---- X6: Phase 5 closeFuncs run in parallel (HIGH #6) ----------------------
+
+// TestStopCloseFuncsRunInParallel verifies HIGH #6: closeFuncs are invoked
+// concurrently so total Phase 5 wall time is max(closeFunc), not Σ.
+func TestStopCloseFuncsRunInParallel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	m, err := NewMultiResource(context.Background(), WithMegaAppName("parallel-mega"))
+	if err != nil {
+		t.Fatalf("NewMultiResource: %v", err)
+	}
+
+	const each = 100 * time.Millisecond
+	const n = 5
+	var done atomic.Int32
+	m.closeFuncs = make([]func(context.Context) error, n)
+	for i := 0; i < n; i++ {
+		m.closeFuncs[i] = func(context.Context) error {
+			time.Sleep(each)
+			done.Add(1)
+			return nil
+		}
+	}
+
+	start := time.Now()
+	_ = m.Stop(context.Background())
+	got := time.Since(start)
+
+	if done.Load() != int32(n) {
+		t.Errorf("closeFuncs run = %d, want %d", done.Load(), n)
+	}
+	// Sequential would take ≥ n*each (500ms). Parallel max(each) ~= 100ms + overhead.
+	// Cap generously at 4x to absorb CI jitter while still failing on a serial
+	// regression.
+	upper := 4 * each
+	if got > upper {
+		t.Errorf("Stop took %v, want < %v (closeFuncs ran sequentially?)", got, upper)
 	}
 }
 

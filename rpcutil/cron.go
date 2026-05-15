@@ -80,12 +80,24 @@ func (m *MultiResource) registerCron(subapp string, jobs []CronJob) error {
 }
 
 // wrapCronFn 把业务 Fn 包装成调度器需要的 func()：
-//   - 注入 sub-app ctx（zerolog 带 subapp 字段）
+//   - 注入 sub-app ctx（zerolog 带 subapp 字段），ctx 派生自 m.rootCtx，
+//     所以 Stop() 触发 rootCancel 后 in-flight cron Fn 立即观察到 ctx.Done
+//     并优雅退出（前提是业务 Fn 自己 honor ctx），避免 Phase 5 把 DB pool
+//     关掉后 cron Fn 仍在用 closed pool。SubAppContext (Background-rooted)
+//     专供 one-off 调用使用,不适合 cron。
 //   - defer recover()，panic 时上报 mega_cron_panic_total
 //   - 上报 mega_cron_duration_seconds_bucket 和 mega_cron_error_total
+//
+// Addresses PR #115 cross-review BLOCKER #4.
 func (m *MultiResource) wrapCronFn(subapp, name string, fn func(context.Context) error) func() {
 	return func() {
-		ctx := m.SubAppContext(subapp)
+		parent := m.rootCtx
+		if parent == nil {
+			// Defensive fallback for tests that build *MultiResource without
+			// going through NewMultiResource.
+			parent = context.Background()
+		}
+		ctx := m.subAppCtxFromParent(parent, subapp)
 		defer func() {
 			if r := recover(); r != nil {
 				log.Error().
