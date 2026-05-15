@@ -45,6 +45,11 @@ var errNotImplemented = errors.New("rpcutil: not implemented (Wave 0 stub)")
 // 小写字母开头，仅允许小写字母 / 数字 / dash。
 var subAppNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
+// unknownVersion is the default value for mega_subapp_version{version=} when
+// the build forgets to inject a sha via -ldflags (or RecordSubAppVersion
+// wasn't called). Extracted as a const to satisfy goconst.
+const unknownVersion = "unknown"
+
 // sdkEnvBlacklist 列出不允许 sub-app ConfigMap 通过 envPrefix 暗中覆盖的 SDK
 // 全局 env。详见 docs/10 §五。
 var sdkEnvBlacklist = []string{
@@ -577,7 +582,7 @@ func (m *MultiResource) RecordSubAppVersion(subapp, version string) {
 		m.subAppVersions = map[string]string{}
 	}
 	if version == "" {
-		version = "unknown"
+		version = unknownVersion
 	}
 	m.subAppVersions[subapp] = version
 }
@@ -627,7 +632,7 @@ func (m *MultiResource) registerSubAppVersionMetric() {
 		name := rs.app.Name()
 		version := versions[name]
 		if version == "" {
-			version = "unknown"
+			version = unknownVersion
 		}
 		g.WithLabelValues(name, version).Set(1)
 	}

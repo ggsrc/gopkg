@@ -1,20 +1,21 @@
 // fixes_test.go — review-driven regression tests for the PR #115 framework.
 //
 // Each test below pins a specific fix from the multi-perspective code review:
-//   F1: mega_subapp_version gauge must use a package-level sync.Once so multiple
-//       MultiResource instances in the same process don't panic on duplicate
-//       prometheus.MustRegister.
-//   F3: normalizeMegaAppName strips a leading "galxe-" so OTEL_SERVICE_NAME does
-//       not become "galxe-galxe-foo".
-//   F4: Register is concurrency-safe across goroutines (no duplicate names or
-//       lost subapps).
-//   F5: processSubApp's port reservation is atomic — no two concurrent Register
-//       calls can both claim the same port.
-//   F6: scanLeakedSDKEnv is a no-op when no subApps are registered.
-//   F7: stopServers does not bump mega_shutdown_aborted_total for non-timeout
-//       Shutdown errors (e.g. ErrServerClosed when already-closed).
-//   WithRedis / WithDCache: option injectors thread the values through to the
-//       MultiResource so CacheFor sub-apps work end-to-end.
+//
+//	F1: mega_subapp_version gauge must use a package-level sync.Once so multiple
+//	    MultiResource instances in the same process don't panic on duplicate
+//	    prometheus.MustRegister.
+//	F3: normalizeMegaAppName strips a leading "galxe-" so OTEL_SERVICE_NAME does
+//	    not become "galxe-galxe-foo".
+//	F4: Register is concurrency-safe across goroutines (no duplicate names or
+//	    lost subapps).
+//	F5: processSubApp's port reservation is atomic — no two concurrent Register
+//	    calls can both claim the same port.
+//	F6: scanLeakedSDKEnv is a no-op when no subApps are registered.
+//	F7: stopServers does not bump mega_shutdown_aborted_total for non-timeout
+//	    Shutdown errors (e.g. ErrServerClosed when already-closed).
+//	WithRedis / WithDCache: option injectors thread the values through to the
+//	    MultiResource so CacheFor sub-apps work end-to-end.
 package rpcutil
 
 import (

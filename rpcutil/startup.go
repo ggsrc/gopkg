@@ -28,10 +28,13 @@ import (
 //   - GracefulStopTimeout: Phase 2 每个 grpc/http server graceful 等待上限.
 //   - ShutdownPhaseTimeout: Phase 3/4/5 子阶段单步 ctx timeout.
 //   - HealthServerShutdownTimeout: Phase 6 health + metric server.
+//   - HTTPServerReadHeaderTimeout: hard cap on time spent reading request
+//     headers — protects against Slowloris-style attacks (gosec G112).
 const (
 	GracefulStopTimeout         = 30 * time.Second
 	ShutdownPhaseTimeout        = 30 * time.Second
 	HealthServerShutdownTimeout = 5 * time.Second
+	HTTPServerReadHeaderTimeout = 10 * time.Second
 )
 
 // healthListenPort / metricListenPort 在 spec 中固定（docs/11 §一 Phase 4）。
@@ -180,7 +183,10 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 			m.mu.Unlock()
 			return fmt.Errorf("phase4: no listener bound for http port %d", port)
 		}
-		srv := &http.Server{Handler: eng}
+		srv := &http.Server{
+			Handler:           eng,
+			ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+		}
 		m.httpServers[port] = srv
 		httpPairs[port] = httpPair{eng: eng, lis: lis, srv: srv}
 	}
@@ -205,8 +211,9 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 
 	// /health/{live,ready,debug}
 	healthSrv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", healthListenPort),
-		Handler: m.healthMux(),
+		Addr:              fmt.Sprintf(":%d", healthListenPort),
+		Handler:           m.healthMux(),
+		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
 	}
 	m.mu.Lock()
 	m.healthServer = healthSrv
@@ -225,6 +232,7 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 		Handler: promhttp.HandlerFor(m.gatherer(), promhttp.HandlerOpts{
 			ErrorHandling: promhttp.ContinueOnError,
 		}),
+		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
 	}
 	m.mu.Lock()
 	m.metricServer = metricSrv

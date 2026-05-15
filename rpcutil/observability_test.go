@@ -28,7 +28,7 @@ import (
 
 // ---- helpers -----------------------------------------------------------
 
-// newObsTestMR returns a minimal MultiResource with maps eagerly initialised
+// newObsTestMR returns a minimal MultiResource with maps eagerly initialized
 // so listener factory methods can run. Named distinctly from other test
 // helpers in the package to avoid cross-file collisions.
 func newObsTestMR() *MultiResource {
@@ -486,10 +486,10 @@ func TestHttpRouterOnWiresSubAppCtx(t *testing.T) {
 
 func TestLookupSubappLocked(t *testing.T) {
 	pm := map[string]int{
-		"airdrop.grpc":       9090,
-		"airdrop.http-rest":  3000,
-		"token.grpc":         9091,
-		"plain":              7777, // no dot
+		"airdrop.grpc":      9090,
+		"airdrop.http-rest": 3000,
+		"token.grpc":        9091,
+		"plain":             7777, // no dot
 	}
 	if got := lookupSubappLocked(pm, 9090); got != "airdrop" {
 		t.Errorf("port 9090 -> %q, want airdrop", got)

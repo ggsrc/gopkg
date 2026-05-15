@@ -164,7 +164,7 @@ var (
 //
 // The goroutine's ctx is derived from m.rootCtx (the lifecycle ctx passed to
 // NewMultiResource), NOT context.Background — so when the caller's ctx is
-// cancelled (typical: signal.NotifyContext SIGTERM) OR Stop() runs, the
+// canceled (typical: signal.NotifyContext SIGTERM) OR Stop() runs, the
 // retry loop exits cleanly. Addresses PR #115 review G2 (gemini).
 //
 // See mega-project/docs/11-framework-startup-shutdown.md §四.

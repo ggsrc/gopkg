@@ -12,6 +12,7 @@ package rpcutil
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -205,10 +206,19 @@ func (m *MultiResource) RegisterDB(name string, cfg DBConfig) error {
 	}
 
 	// 用户层 override 优先于 env (env 已经填好默认值)。
+	// gosec G115: bounds-check before narrowing int → int32. Practical
+	// MaxConns/MinConns are 1..hundreds; an out-of-range value is a config
+	// bug, fail fast.
 	if cfg.MaxConns > 0 {
+		if cfg.MaxConns > math.MaxInt32 {
+			return fmt.Errorf("rpcutil: db pool %q MaxConns=%d exceeds int32 max", name, cfg.MaxConns)
+		}
 		wpgxCfg.MaxConns = int32(cfg.MaxConns)
 	}
 	if cfg.MinConns > 0 {
+		if cfg.MinConns > math.MaxInt32 {
+			return fmt.Errorf("rpcutil: db pool %q MinConns=%d exceeds int32 max", name, cfg.MinConns)
+		}
 		wpgxCfg.MinConns = int32(cfg.MinConns)
 	}
 	if cfg.MaxConnLifetime > 0 {

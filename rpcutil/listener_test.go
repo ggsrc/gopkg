@@ -15,7 +15,7 @@ import (
 // ---- helpers -----------------------------------------------------------
 
 // newListenerTestMR builds a minimal MultiResource with the maps owned by
-// listener.go eagerly initialised so per-file methods can be exercised without
+// listener.go eagerly initialized so per-file methods can be exercised without
 // depending on NewMultiResource (still a Wave 3 stub).
 //
 // Named distinctly from cron_test.go / health_test.go helpers to avoid
@@ -260,7 +260,7 @@ func TestGrpcServerOnIdempotent(t *testing.T) {
 
 func TestGrpcServerOnLazyInitsMap(t *testing.T) {
 	// portMap is the only map we eagerly set; grpcServers map should be
-	// lazily initialised even if nil.
+	// lazily initialized even if nil.
 	m := &MultiResource{}
 	s := m.GrpcServerOn(9090)
 	if s == nil {

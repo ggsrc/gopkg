@@ -62,7 +62,7 @@ func (a *startupTestApp) Close(ctx context.Context) error {
 	return a.closeErr
 }
 
-// newStartupTestMR builds a MultiResource with the bare minimum maps initialised
+// newStartupTestMR builds a MultiResource with the bare minimum maps initialized
 // (mirrors what NewMultiResource would do, but bypasses gocron + sdk env for
 // quick unit tests).
 func newStartupTestMR(t *testing.T) *MultiResource {
@@ -191,7 +191,7 @@ func TestPhase2InitSubAppsInitError(t *testing.T) {
 		t.Errorf("error should wrap subapp name, got: %v", err)
 	}
 	if good.initCount.Load() != 0 {
-		t.Errorf("subsequent sub-app must not be initialised, got count=%d",
+		t.Errorf("subsequent sub-app must not be initialized, got count=%d",
 			good.initCount.Load())
 	}
 }
@@ -298,7 +298,7 @@ func TestStartStopHappyPath(t *testing.T) {
 	m.cronDisabled = false
 
 	// subapp version metric is now package-level sync.Once — no per-instance
-	// pre-fire needed (F1 fix). Test relies on single-Once behaviour.
+	// pre-fire needed (F1 fix). Test relies on single-Once behavior.
 
 	ports := pickFreePorts(t, 1)
 	grpcPort := ports[0]

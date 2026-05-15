@@ -115,7 +115,7 @@ func TestE2EFullChainTwoSubApps(t *testing.T) {
 		}
 		resp, err := http.Get(readyURL)
 		if err == nil && resp.StatusCode == http.StatusOK {
-			io.Copy(io.Discard, resp.Body)
+			_, _ = io.Copy(io.Discard, resp.Body)
 			resp.Body.Close()
 			break
 		}
@@ -142,7 +142,7 @@ func TestE2EFullChainTwoSubApps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GET /boom: %v", err)
 	}
-	io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("/boom status=%d, want 500", resp.StatusCode)
