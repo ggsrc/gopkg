@@ -98,7 +98,19 @@ func (m *MultiResource) wrapCronFn(subapp, name string, fn func(context.Context)
 			parent = context.Background()
 		}
 		ctx := m.subAppCtxFromParent(parent, subapp)
+		start := time.Now()
+
+		// PR #115 Round-10 H1: instrument duration + error metrics in a defer
+		// so a panic in fn(ctx) still records them. Previously these lived
+		// AFTER fn(ctx) on the happy path and got skipped on panic — a cron
+		// job that panicked every invocation only bumped mega_cron_panic_total,
+		// leaving mega_cron_error_total at 0 and mega_cron_duration_seconds_count
+		// at 0. The MegaCronErrorRate alert's clamp_min(...,1) denominator made
+		// the ratio 0/1 < 0.05 → the alert never fired on a 100%-panic cron.
+		// Defer-based instrumentation closes the gap.
+		var err error
 		defer func() {
+			cronDurationHist.WithLabelValues(subapp, name).Observe(time.Since(start).Seconds())
 			if r := recover(); r != nil {
 				log.Error().
 					Str("subapp", subapp).
@@ -107,15 +119,19 @@ func (m *MultiResource) wrapCronFn(subapp, name string, fn func(context.Context)
 					Bytes("stack", debug.Stack()).
 					Msg("cron panic recovered")
 				cronPanicCounter.WithLabelValues(subapp, name).Inc()
+				// A panic counts as an error for alerting purposes — without
+				// this, mega_cron_error_total stays at 0 forever on always-
+				// panicking jobs.
+				cronErrorCounter.WithLabelValues(subapp, name).Inc()
+				return
+			}
+			if err != nil {
+				zerolog.Ctx(ctx).Error().Err(err).Str("job", name).Msg("cron failed")
+				cronErrorCounter.WithLabelValues(subapp, name).Inc()
 			}
 		}()
-		start := time.Now()
-		err := fn(ctx)
-		cronDurationHist.WithLabelValues(subapp, name).Observe(time.Since(start).Seconds())
-		if err != nil {
-			zerolog.Ctx(ctx).Error().Err(err).Str("job", name).Msg("cron failed")
-			cronErrorCounter.WithLabelValues(subapp, name).Inc()
-		}
+
+		err = fn(ctx)
 	}
 }
 

@@ -106,7 +106,7 @@ func TestNewMultiResourceHappyPath(t *testing.T) {
 	}
 	if m.portMap == nil || m.grpcServers == nil || m.grpcListeners == nil ||
 		m.httpRouters == nil || m.httpListeners == nil || m.httpServers == nil ||
-		m.dbPools == nil || m.dbConfigs == nil || m.caches == nil ||
+		m.dbPools == nil || m.dbConfigs == nil ||
 		m.registries == nil || m.cronJobs == nil {
 		t.Error("expected all maps non-nil")
 	}

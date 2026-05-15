@@ -277,32 +277,15 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 	}
 	m.mu.Unlock()
 
-	for port, pair := range grpcPairs {
-		port, pair := port, pair
-		go func() {
-			if err := pair.srv.Serve(pair.lis); err != nil && err != grpc.ErrServerStopped {
-				log.Error().Err(err).Int("port", port).Msg("grpc Serve exited")
-			}
-		}()
-	}
-	for port, pair := range httpPairs {
-		port, pair := port, pair
-		go func() {
-			if err := pair.srv.Serve(pair.lis); err != nil && err != http.ErrServerClosed {
-				log.Error().Err(err).Int("port", port).Msg("http Serve exited")
-			}
-		}()
-	}
-
-	// /health/{live,ready,debug} + /metrics — bind BOTH ports synchronously
-	// FIRST, then spawn Serve goroutines only after both succeed. The previous
-	// ListenAndServe-in-goroutine pattern let Start claim success even when
-	// the port was already taken (k8s readinessProbe could never reach
-	// /health/ready → pod stuck Pending forever with only a single info-level
-	// log line). Bind-then-serve also eliminates the race window where
-	// closing a half-spawned health listener after a metric-bind failure
-	// would trigger a log from the half-running Serve goroutine.
-	// Round-9 follow-up fix.
+	// PR #115 Round-10 M1: bind /health AND /metrics ports SYNCHRONOUSLY
+	// BEFORE spawning any Serve goroutine. The Round-9 fix made health +
+	// metric binds synchronous (their previous ListenAndServe-in-goroutine
+	// silently dropped port-conflict errors), but sub-app grpc/http Serve
+	// goroutines were still being spawned BEFORE health/metric bind. On a
+	// health-bind failure (or metric-bind failure) the function returned
+	// error while sub-app Serve goroutines were already running with their
+	// listeners open — leaked until process exit. Now: bind first, spawn
+	// only after every bind succeeds, so a fail-fast path leaks nothing.
 	healthSrv := &http.Server{
 		Handler:           m.healthMux(),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
@@ -330,8 +313,6 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 	}
 	metricLis, err := net.Listen("tcp", fmt.Sprintf(":%d", metricListenPort))
 	if err != nil {
-		// Close the health listener (no Serve has been started yet, so no
-		// goroutine race).
 		_ = healthLis.Close()
 		return fmt.Errorf("phase4: bind metric :%d: %w", metricListenPort, err)
 	}
@@ -341,6 +322,23 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 	m.metricServer = metricSrv
 	m.mu.Unlock()
 
+	// All ports bound — NOW spawn every Serve goroutine.
+	for port, pair := range grpcPairs {
+		port, pair := port, pair
+		go func() {
+			if err := pair.srv.Serve(pair.lis); err != nil && err != grpc.ErrServerStopped {
+				log.Error().Err(err).Int("port", port).Msg("grpc Serve exited")
+			}
+		}()
+	}
+	for port, pair := range httpPairs {
+		port, pair := port, pair
+		go func() {
+			if err := pair.srv.Serve(pair.lis); err != nil && err != http.ErrServerClosed {
+				log.Error().Err(err).Int("port", port).Msg("http Serve exited")
+			}
+		}()
+	}
 	go func() {
 		if err := healthSrv.Serve(healthLis); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Int("port", healthListenPort).Msg("health Serve exited")

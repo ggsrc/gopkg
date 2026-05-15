@@ -82,7 +82,6 @@ func newStartupTestMR(t *testing.T) *MultiResource {
 		httpServers:   map[int]any{},
 		dbPools:       nil,
 		dbConfigs:     nil,
-		caches:        nil,
 		registries:    map[string]*prometheus.Registry{},
 		gatherers:     prometheus.Gatherers{prometheus.DefaultGatherer},
 		cronJobs:      map[string]bool{},

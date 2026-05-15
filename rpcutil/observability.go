@@ -305,7 +305,14 @@ func (m *MultiResource) panicRecoverHttpMiddleware(subapp string) gin.HandlerFun
 		defer func() {
 			if r := recover(); r != nil {
 				stack := debug.Stack()
+				// PR #115 Round-10 M3: gin's c.FullPath() returns "" for
+				// unmatched routes; map to "unknown" to stay consistent with
+				// metricHttpMiddleware's label values (so joining panicCounter
+				// against httpRequestCounter on `path` lines up).
 				path := c.FullPath()
+				if path == "" {
+					path = "unknown"
+				}
 				log.Error().
 					Str("subapp", subapp).
 					Str("path", path).

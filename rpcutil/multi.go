@@ -110,7 +110,6 @@ type MultiResource struct {
 
 	redis  redis.UniversalClient
 	dcache *dcache.DCache
-	caches map[string]*dcache.DCache // subapp → namespaced wrapper
 
 	registries map[string]*prometheus.Registry
 	gatherers  prometheus.Gatherers
@@ -301,7 +300,6 @@ func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource,
 
 		redis:  cfg.redis,
 		dcache: cfg.dcache,
-		caches: map[string]*dcache.DCache{},
 
 		registries: map[string]*prometheus.Registry{},
 		gatherers:  prometheus.Gatherers{prometheus.DefaultGatherer},
@@ -405,6 +403,21 @@ func (m *MultiResource) registerOne(app SubApp, opts ...RegisterOption) error {
 	if !subAppNameRe.MatchString(name) {
 		return fmt.Errorf("rpcutil: Register: invalid SubApp name %q (want %s)",
 			name, subAppNameRe.String())
+	}
+
+	// PR #115 Round-10 H2: refuse Register after Phase 1 (Start) has begun
+	// OR after Stop. Round-8 #6 added the same guard inside GrpcServerOn /
+	// HttpRouterOn so they return nil on late calls, but processSubApp
+	// ignored that return value → portMap entry was still written + the
+	// sub-app was still appended to m.subApps + Register returned nil
+	// ("success"). Stopping the rot at the Register entry is cheaper than
+	// spreading nil-checks across processSubApp.
+	if m.phase1BindStarted.Load() {
+		return fmt.Errorf("rpcutil: Register %q: framework already started; "+
+			"Register must complete before Start", name)
+	}
+	if m.shutdownStarted.Load() {
+		return fmt.Errorf("rpcutil: Register %q: framework is stopping; Register rejected", name)
 	}
 
 	m.registerMu.Lock()
