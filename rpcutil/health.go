@@ -265,7 +265,22 @@ func (m *MultiResource) orderedSubAppNames(extra map[string][]healthCheckResult)
 	return names
 }
 
-// runCheckWithTimeout 用独立的 derived ctx 跑一次 Check 并保证 timeout 生效。
+// runCheckWithTimeout 用独立的 derived ctx 跑一次 Check 并保证 timeout 真的生效。
+//
+// 关键点: 不能直接 `return fn(ctx)` — `context.WithTimeout` 只 cancel ctx,
+// 不会中断不 honor ctx 的 Check 函数。一个写得不规范的 sub-app Check (例如
+// 调一个 net.Conn.Read 没设 deadline) 会让 readiness handler 卡到 Check 自己
+// 返回为止, 超出 k8s readinessProbe timeout (典型 1s) 导致 pod 被错误地标为
+// 不健康。
+//
+// 实现: 在子 goroutine 里跑 fn,主 goroutine select 在 done / ctx.Done。timeout
+// 后保证返回 ctx.Err() 给 caller,**子 goroutine 可能继续跑**(leak 一个 goroutine
+// 直到 fn 自己返回)—— 这是写得不规范的 Check 的 deliberate trade-off:
+// 宁可 leak 一个 goroutine 也不能拖死整个 readiness 探针。Prometheus 上的
+// runtime.NumGoroutine 会暴露这类泄漏给 SRE。
+//
+// Addresses PR #115 Round-9 cross-review: readiness deadline must hold even
+// when sub-app Check ignores ctx.
 func runCheckWithTimeout(parent context.Context, fn func(context.Context) error, timeout time.Duration) error {
 	if fn == nil {
 		return nil
@@ -275,7 +290,28 @@ func runCheckWithTimeout(parent context.Context, fn func(context.Context) error,
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
-	return fn(ctx)
+
+	// Buffered chan size 1 so a slow fn that returns AFTER we've already
+	// committed to ctx.Err() doesn't block forever trying to send into a
+	// receiverless chan (which would also pin the goroutine).
+	done := make(chan error, 1)
+	go func() {
+		// Defensive: if fn panics, recover and surface the panic as an error
+		// so the parent goroutine doesn't block on a never-arrived send.
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("health check panic: %v", r)
+			}
+		}()
+		done <- fn(ctx)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // ---- JSON shape for /health/debug (docs/12 §三) --------------------------

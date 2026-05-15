@@ -21,6 +21,8 @@ package rpcutil
 import (
 	"bytes"
 	"context"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -852,5 +854,145 @@ func TestPhase1BindListeners_DoesNotHoldMuAcrossListen(t *testing.T) {
 
 	if after == before {
 		t.Errorf("reader stalled during phase1 (before=%d after=%d) — m.mu likely held across net.Listen", before, after)
+	}
+}
+
+// ============================================================================
+// Round-9 cross-review pins.
+// ============================================================================
+
+// Z1 (Round-9 #A): runCheckWithTimeout must enforce its deadline even when
+// the Check fn ignores ctx. context.WithTimeout alone is not enough — a sub-
+// app Check that blocks on a non-ctx-aware syscall (e.g. net.Conn.Read with
+// no deadline) would otherwise pin readiness probes past the k8s budget.
+func TestRunCheckWithTimeout_DeadlineEnforcedAgainstStuckCheck(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	// Stuck check: ignores ctx, sleeps far longer than the timeout. Run via
+	// the production code; assertion is that the call returns quickly with
+	// ctx.DeadlineExceeded.
+	stuck := func(ctx context.Context) error {
+		time.Sleep(2 * time.Second) // ctx-ignoring — the bug under test
+		return nil
+	}
+
+	start := time.Now()
+	err := runCheckWithTimeout(context.Background(), stuck, 50*time.Millisecond)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("expected context.DeadlineExceeded, got %v", err)
+	}
+	// Generous upper bound — must return well before the 2s sleep finishes.
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("runCheckWithTimeout returned after %v, want < 500ms (deadline ignored)", elapsed)
+	}
+}
+
+// Z1b: panicking check Fn must not pin the parent goroutine — defensive
+// recover inside the goroutine surfaces the panic as an error.
+func TestRunCheckWithTimeout_PanicSurfacedAsError(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	panicking := func(ctx context.Context) error {
+		panic("boom")
+	}
+
+	start := time.Now()
+	err := runCheckWithTimeout(context.Background(), panicking, 1*time.Second)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Error("expected non-nil error from panicking check")
+	}
+	if !strings.Contains(err.Error(), "panic") {
+		t.Errorf("expected error to mention panic, got %q", err.Error())
+	}
+	if elapsed > 200*time.Millisecond {
+		t.Errorf("panicking check returned after %v, want < 200ms", elapsed)
+	}
+}
+
+// Z2 (Round-9 #B): phase4 must SYNCHRONOUSLY bind the health port. If the
+// port is taken, phase4 must return an error so Start fails fast — the
+// previous ListenAndServe-in-goroutine pattern silently broke readiness on
+// port collision while letting Start claim success.
+func TestPhase4OpenHealth_PortConflictFailsStart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	// Pre-bind the health port so phase4's net.Listen will fail with
+	// "address already in use". Bind on the wildcard ":port" — same syntax
+	// phase4 uses — otherwise a localhost-only pre-bind would not conflict
+	// with phase4's wildcard listen.
+	port := pickFreePorts(t, 1)[0]
+	pre, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		t.Fatalf("pre-bind :%d: %v", port, err)
+	}
+	defer pre.Close()
+
+	origHealth := healthListenPort
+	healthListenPort = port
+	t.Cleanup(func() { healthListenPort = origHealth })
+
+	m := newStartupTestMR(t)
+	m.cronDisabled = true
+	m.appName = "phase4-port-conflict"
+
+	err = m.phase4OpenHealth(context.Background())
+	if err == nil {
+		t.Fatal("phase4OpenHealth returned nil but health port should have been taken")
+	}
+	if !strings.Contains(err.Error(), "bind health") {
+		t.Errorf("error does not mention bind health: %v", err)
+	}
+}
+
+// Z2b: same for the /metrics port — phase4 must clean up the just-bound
+// health listener if the metric port subsequently fails to bind.
+func TestPhase4OpenHealth_MetricPortConflictCleansUpHealth(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	silenceLogger(t)
+
+	ports := pickFreePorts(t, 2)
+	metricPort, healthPort := ports[0], ports[1]
+	pre, err := net.Listen("tcp", fmt.Sprintf(":%d", metricPort))
+	if err != nil {
+		t.Fatalf("pre-bind metric :%d: %v", metricPort, err)
+	}
+	defer pre.Close()
+
+	origHealth, origMetric := healthListenPort, metricListenPort
+	healthListenPort = healthPort
+	metricListenPort = metricPort
+	t.Cleanup(func() {
+		healthListenPort = origHealth
+		metricListenPort = origMetric
+	})
+
+	m := newStartupTestMR(t)
+	m.cronDisabled = true
+	m.appName = "phase4-metric-conflict"
+
+	err = m.phase4OpenHealth(context.Background())
+	if err == nil {
+		t.Fatal("phase4OpenHealth returned nil but metric port should have been taken")
+	}
+	if !strings.Contains(err.Error(), "bind metric") {
+		t.Errorf("error does not mention bind metric: %v", err)
+	}
+
+	// The cleanup path closed the health listener — verify by re-binding the
+	// same port immediately. If phase4 leaked the fd this would fail with
+	// EADDRINUSE.
+	test, lerr := net.Listen("tcp", fmt.Sprintf(":%d", healthPort))
+	if lerr != nil {
+		t.Errorf("health port still bound after phase4 cleanup: %v", lerr)
+	}
+	if test != nil {
+		_ = test.Close()
 	}
 }

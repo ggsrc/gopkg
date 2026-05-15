@@ -294,23 +294,26 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 		}()
 	}
 
-	// /health/{live,ready,debug}
+	// /health/{live,ready,debug} + /metrics — bind BOTH ports synchronously
+	// FIRST, then spawn Serve goroutines only after both succeed. The previous
+	// ListenAndServe-in-goroutine pattern let Start claim success even when
+	// the port was already taken (k8s readinessProbe could never reach
+	// /health/ready → pod stuck Pending forever with only a single info-level
+	// log line). Bind-then-serve also eliminates the race window where
+	// closing a half-spawned health listener after a metric-bind failure
+	// would trigger a log from the half-running Serve goroutine.
+	// Round-9 follow-up fix.
 	healthSrv := &http.Server{
-		Addr:              fmt.Sprintf(":%d", healthListenPort),
 		Handler:           m.healthMux(),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
 		ReadTimeout:       HTTPServerReadTimeout,
 		IdleTimeout:       HTTPServerIdleTimeout,
 		// WriteTimeout intentionally unset.
 	}
-	m.mu.Lock()
-	m.healthServer = healthSrv
-	m.mu.Unlock()
-	go func() {
-		if err := healthSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Error().Err(err).Int("port", healthListenPort).Msg("health Serve exited")
-		}
-	}()
+	healthLis, err := net.Listen("tcp", fmt.Sprintf(":%d", healthListenPort))
+	if err != nil {
+		return fmt.Errorf("phase4: bind health :%d: %w", healthListenPort, err)
+	}
 
 	// /metrics (聚合所有 sub-app registry + DefaultGatherer).
 	// Wraps the gatherer slice in a lockedGatherers so Prometheus scrapes
@@ -319,18 +322,32 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 	// high-cardinality scrapes (80 sub-app × hundreds of series) can legitimately
 	// exceed minute-scale write durations under load (Round-8 cross-review #3).
 	metricSrv := &http.Server{
-		Addr: fmt.Sprintf(":%d", metricListenPort),
 		Handler: promhttp.HandlerFor(m.gatherer(), promhttp.HandlerOpts{
 			ErrorHandling: promhttp.ContinueOnError,
 		}),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
 		IdleTimeout:       HTTPServerIdleTimeout,
 	}
+	metricLis, err := net.Listen("tcp", fmt.Sprintf(":%d", metricListenPort))
+	if err != nil {
+		// Close the health listener (no Serve has been started yet, so no
+		// goroutine race).
+		_ = healthLis.Close()
+		return fmt.Errorf("phase4: bind metric :%d: %w", metricListenPort, err)
+	}
+
 	m.mu.Lock()
+	m.healthServer = healthSrv
 	m.metricServer = metricSrv
 	m.mu.Unlock()
+
 	go func() {
-		if err := metricSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := healthSrv.Serve(healthLis); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Int("port", healthListenPort).Msg("health Serve exited")
+		}
+	}()
+	go func() {
+		if err := metricSrv.Serve(metricLis); err != nil && err != http.ErrServerClosed {
 			log.Error().Err(err).Int("port", metricListenPort).Msg("metric Serve exited")
 		}
 	}()
