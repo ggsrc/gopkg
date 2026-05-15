@@ -111,18 +111,19 @@ func (m *MultiResource) processSubApp(app SubApp, opts ...RegisterOption) error 
 				Msg("port differs from preferred (override accepted)")
 		}
 
-		if existingSubapp, existingListener := m.lookupListenerByPort(port); existingSubapp != "" {
+		// Atomic "check port free + reserve subapp/listener -> port" under one
+		// lock — fixes F5 TOCTOU where two concurrent Register calls could both
+		// pass the port-taken check and stomp the same port. Server creation
+		// (GrpcServerOn / HttpRouterOn) re-acquires m.mu separately; the
+		// reservation persists across that lock-drop so the subapp lookup inside
+		// the interceptor chain still sees the right value.
+		m.mu.Lock()
+		if existingSubapp, existingListener := lookupListenerLocked(m.portMap, port); existingSubapp != "" {
+			m.mu.Unlock()
 			return fmt.Errorf(
 				"port %d already taken by subapp=%s listener=%s",
 				port, existingSubapp, existingListener)
 		}
-
-		// Reserve the port → subapp mapping BEFORE creating the server so
-		// the interceptor chain bound during GrpcServerOn / HttpRouterOn can
-		// resolve subapp via lookupSubappLocked. Reversing this order leaves
-		// interceptors with subapp="" — which would mis-label every metric
-		// and lose subapp in the logger context (bug fixed during e2e).
-		m.mu.Lock()
 		if m.portMap == nil {
 			m.portMap = map[string]int{}
 		}
@@ -160,12 +161,16 @@ func (m *MultiResource) subappForListener(port int) string {
 func (m *MultiResource) lookupListenerByPort(port int) (string, string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	for key, p := range m.portMap {
+	return lookupListenerLocked(m.portMap, port)
+}
+
+// lookupListenerLocked is the lock-free variant used by callers that already
+// hold m.mu. Returns (subapp, listenerName) or ("", "") if not found.
+func lookupListenerLocked(portMap map[string]int, port int) (string, string) {
+	for key, p := range portMap {
 		if p != port {
 			continue
 		}
-		// key format: "subapp.listener" (listener name may itself contain dots
-		// in pathological cases — split on the first dot only).
 		if idx := strings.Index(key, "."); idx >= 0 {
 			return key[:idx], key[idx+1:]
 		}

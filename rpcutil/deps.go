@@ -15,6 +15,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kelseyhightower/envconfig"
@@ -122,6 +123,37 @@ var newPoolFunc = func(ctx context.Context, cfg *wpgx.Config) (*wpgx.Pool, error
 	return wpgx.NewPool(ctx, cfg)
 }
 
+// envconfigMu serializes the os.Setenv → envconfig.Process → os.Unsetenv
+// sequence inside processWpgxEnvWithAppNameFallback so concurrent RegisterDB
+// calls don't race on the global env. PR #115 review G7 fix (gemini).
+var envconfigMu sync.Mutex
+
+// processWpgxEnvWithAppNameFallback runs envconfig.Process(prefix, &wpgx.Config)
+// while temporarily injecting {prefix}_APPNAME=fallback if it's not already
+// set. The env mutation is serialized + reverted, so the global state
+// observed outside this function never changes (no leak, no race).
+func processWpgxEnvWithAppNameFallback(prefix, fallback string) (wpgx.Config, error) {
+	appNameKey := prefix + "_APPNAME"
+
+	envconfigMu.Lock()
+	defer envconfigMu.Unlock()
+
+	original, hadOriginal := os.LookupEnv(appNameKey)
+	if !hadOriginal {
+		_ = os.Setenv(appNameKey, fallback)
+		defer func() { _ = os.Unsetenv(appNameKey) }()
+	} else {
+		// keep original; revert is a no-op (lookup still hadOriginal).
+		_ = original
+	}
+
+	var out wpgx.Config
+	if err := envconfig.Process(prefix, &out); err != nil {
+		return wpgx.Config{}, err
+	}
+	return out, nil
+}
+
 // RegisterDB 注册一个 sub-app 的 DB pool。
 //
 // 步骤:
@@ -157,18 +189,17 @@ func (m *MultiResource) RegisterDB(name string, cfg DBConfig) error {
 			name, strings.Join(missing, ", "))
 	}
 
-	// wpgx.Config.AppName 是 envconfig `required:"true"`。如果环境里没显式
-	// {PREFIX}_APPNAME, 用 db pool name 兜底; 走 t.Setenv-style 临时设值, 让
-	// envconfig.Process 不要 reject。
-	appNameKey := cfg.EnvPrefix + "_APPNAME"
-	if _, ok := os.LookupEnv(appNameKey); !ok {
-		if err := os.Setenv(appNameKey, name); err != nil {
-			return fmt.Errorf("rpcutil: db pool %q failed to set fallback %s: %w", name, appNameKey, err)
-		}
-	}
-
-	wpgxCfg := wpgx.Config{}
-	if err := envconfig.Process(cfg.EnvPrefix, &wpgxCfg); err != nil {
+	// wpgx.Config.AppName has envconfig tag `required:"true"`, so we can't
+	// satisfy it by pre-filling the struct — envconfig.Process always re-reads
+	// env. Original code's os.Setenv-based fallback was racy across
+	// concurrent RegisterDB calls (PR #115 review G7, gemini).
+	//
+	// Fix: serialize the env mutation under envconfigMu, restore the env
+	// var to its pre-call state immediately. Env stays globally mutated for
+	// the duration of envconfig.Process only, and concurrent RegisterDB calls
+	// observe deterministic, atomic windows instead of races.
+	wpgxCfg, err := processWpgxEnvWithAppNameFallback(cfg.EnvPrefix, name)
+	if err != nil {
 		return fmt.Errorf("rpcutil: db pool %q envconfig.Process(%q) failed: %w",
 			name, cfg.EnvPrefix, err)
 	}

@@ -194,8 +194,9 @@ func TestSetMegaSDKEnvWarnsOnPrefixedLeak(t *testing.T) {
 	if err := m.Register(newMultiFakeApp("staking", 19090), OnPorts(PortMap{"l0": 19090})); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	// Re-audit after Register so the warn loop has subapp names.
-	m.setMegaSDKEnv()
+	// Re-audit after Register so the warn loop has subapp names (F6 fix —
+	// leak scan now lives in scanLeakedSDKEnv and runs at Start).
+	m.scanLeakedSDKEnv()
 
 	output := buf.String()
 	if !strings.Contains(output, "STAKING_OTEL_SERVICE_NAME") {

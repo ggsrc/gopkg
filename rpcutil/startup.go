@@ -11,6 +11,7 @@ package rpcutil
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -56,6 +57,9 @@ var (
 // 任一 Phase 失败立即返回 wrapped error；本函数不主动调 Stop，
 // 调用方（main）若 Start 失败可自行判断是否补救（通常 os.Exit(1)）。
 func (m *MultiResource) Start(ctx context.Context) error {
+	// SDK env leak audit (docs §五) — runs after Register so subApps is populated.
+	m.scanLeakedSDKEnv()
+
 	if err := m.phase1BindListeners(ctx); err != nil {
 		return fmt.Errorf("phase1 bind listeners: %w", err)
 	}
@@ -213,10 +217,12 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 		}
 	}()
 
-	// /metrics (聚合所有 sub-app registry + DefaultGatherer)
+	// /metrics (聚合所有 sub-app registry + DefaultGatherer).
+	// Wraps the gatherer slice in a lockedGatherers so Prometheus scrapes
+	// don't race with MetricRegistryFor appends (PR #115 review G4 fix).
 	metricSrv := &http.Server{
 		Addr: fmt.Sprintf(":%d", metricListenPort),
-		Handler: promhttp.HandlerFor(m.gatherers, promhttp.HandlerOpts{
+		Handler: promhttp.HandlerFor(m.gatherer(), promhttp.HandlerOpts{
 			ErrorHandling: promhttp.ContinueOnError,
 		}),
 	}
@@ -250,9 +256,15 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 	_ = ctx
 	log.Info().Str("app", m.appName).Msg("mega stopping")
 
-	// Phase 1: health off
+	// Phase 1: health off + cancel framework rootCtx so every background
+	// goroutine started via m.Go observes ctx.Done() and exits its retry loop
+	// instead of competing with the remaining shutdown phases. Addresses PR
+	// #115 review G1 + G2 (gemini).
 	if m.startedAt != nil {
 		m.startedAt.Store(nil)
+	}
+	if m.rootCancel != nil {
+		m.rootCancel()
 	}
 
 	// Phase 2: grpc/http graceful stop in parallel
@@ -267,17 +279,30 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 		cancel()
 	}
 
-	// Phase 4: sub-app Close in reverse order
+	// Phase 4: sub-app Close in parallel. Each Close still gets its own
+	// 30s ctx; total Phase 4 time = max(Close), not Σ(Close). This keeps the
+	// 6-phase shutdown comfortably under terminationGracePeriodSeconds=90 even
+	// when many sub-apps fold in. Reverse-order semantics are dropped because
+	// the framework forbids cross-sub-app dependencies in Close (docs/11 §二);
+	// any sub-app that needs explicit teardown order does it inside its own
+	// Close body, not by relying on Close-ordering across sub-apps.
+	// Addresses PR #115 review G6 (gemini).
 	apps := m.snapshotSubApps()
-	for i := len(apps) - 1; i >= 0; i-- {
-		rs := apps[i]
-		cCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
-		if err := rs.app.Close(cCtx); err != nil {
-			log.Warn().Err(err).Str("subapp", rs.app.Name()).Msg("Close error")
-			shutdownAbortCounter.WithLabelValues(rs.app.Name(), "close").Inc()
-		}
-		cancel()
+	var closeWg sync.WaitGroup
+	for _, rs := range apps {
+		rs := rs
+		closeWg.Add(1)
+		go func() {
+			defer closeWg.Done()
+			cCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
+			defer cancel()
+			if err := rs.app.Close(cCtx); err != nil {
+				log.Warn().Err(err).Str("subapp", rs.app.Name()).Msg("Close error")
+				shutdownAbortCounter.WithLabelValues(rs.app.Name(), "close").Inc()
+			}
+		}()
 	}
+	closeWg.Wait()
 
 	// Phase 5: shared resource close funcs (e.g. DB pools)
 	m.mu.Lock()
@@ -354,8 +379,15 @@ func (m *MultiResource) stopServers() {
 			defer wg.Done()
 			sCtx, cancel := context.WithTimeout(context.Background(), GracefulStopTimeout)
 			defer cancel()
-			if err := srv.Shutdown(sCtx); err != nil {
-				log.Warn().Err(err).Int("port", port).Msg("http shutdown error")
+			err := srv.Shutdown(sCtx)
+			if err == nil {
+				return
+			}
+			// Only count true timeouts as aborts (F7). Other shutdown errors
+			// (e.g. ErrServerClosed when already-stopped, transient io errors)
+			// still surface in logs but should not pollute the abort metric.
+			log.Warn().Err(err).Int("port", port).Msg("http shutdown error")
+			if errors.Is(err, context.DeadlineExceeded) {
 				shutdownAbortCounter.WithLabelValues(m.subAppByPort(port), "http").Inc()
 				_ = srv.Close()
 			}

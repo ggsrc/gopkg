@@ -162,9 +162,20 @@ var (
 // backoff restart. fn returning nil exits the goroutine naturally; fn
 // returning an error or panicking causes a restart up to goroutineMaxBackoff.
 //
+// The goroutine's ctx is derived from m.rootCtx (the lifecycle ctx passed to
+// NewMultiResource), NOT context.Background — so when the caller's ctx is
+// cancelled (typical: signal.NotifyContext SIGTERM) OR Stop() runs, the
+// retry loop exits cleanly. Addresses PR #115 review G2 (gemini).
+//
 // See mega-project/docs/11-framework-startup-shutdown.md §四.
 func (m *MultiResource) Go(subapp, name string, fn func(ctx context.Context) error) {
-	ctx := m.SubAppContext(subapp)
+	parent := m.rootCtx
+	if parent == nil {
+		// NewMultiResource always populates rootCtx; the nil branch is a
+		// defensive fallback (e.g. tests that build *MultiResource by hand).
+		parent = context.Background()
+	}
+	ctx := m.subAppCtxFromParent(parent, subapp)
 	go m.runGoroutineWithRetry(ctx, subapp, name, fn)
 }
 
@@ -194,9 +205,15 @@ func (m *MultiResource) runGoroutineWithRetry(
 			Msg("background goroutine failed; retrying")
 		goroutineFailCounter.WithLabelValues(subapp, name).Inc()
 
+		// G5: time.After in a retry loop leaks a Timer until it fires (since
+		// the ctx.Done() branch wins, the unfired Timer's runtime resources
+		// stay allocated). Use NewTimer + Stop so cancellation releases the
+		// resources immediately.
+		t := time.NewTimer(backoff)
 		select {
-		case <-time.After(backoff):
+		case <-t.C:
 		case <-ctx.Done():
+			t.Stop()
 			return
 		}
 

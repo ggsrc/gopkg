@@ -27,6 +27,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -117,10 +118,21 @@ type MultiResource struct {
 	startedAt  *atomic.Pointer[time.Time]
 	closeFuncs []func(context.Context) error
 
+	// rootCtx is the framework-lifecycle context derived from the caller's
+	// ctx passed to NewMultiResource. m.Go() uses it as the parent for the
+	// per-subapp ctx so background goroutines stop retrying when Stop() runs.
+	// rootCancel is the cancel func; Stop calls it on entry (Phase 1) so the
+	// shutdown phases never compete with newly-retried background work.
+	// Addresses PR #115 review G1 + G2 (gemini).
+	rootCtx    context.Context
+	rootCancel context.CancelFunc
+
 	mu sync.Mutex // 保护并发 Register 和内部 map 写入
 
-	// subappVersionOnce 保证 registerSubAppVersionMetric 跨多次 Start() 幂等。
-	subappVersionOnce sync.Once
+	// registerMu 串行化 Register 调用 — 避免 registerOne 内部的
+	// check-unique → processSubApp → append-subApps 三步出现 TOCTOU。
+	// 总锁序: registerMu -> mu (读路径只取 mu，永远不会反向锁，避免死锁)。
+	registerMu sync.Mutex
 
 	// subAppVersions 由 RecordSubAppVersion 填充（典型场景: mega binary 通过
 	// -ldflags -X 注入每个 sub-app 的 commit SHA）。registerSubAppVersionMetric
@@ -150,6 +162,8 @@ type MultiOption func(*multiConfig)
 type multiConfig struct {
 	appName       string
 	migrationMode bool
+	redis         redis.UniversalClient
+	dcache        *dcache.DCache
 }
 
 func defaultMultiConfig() multiConfig {
@@ -158,6 +172,9 @@ func defaultMultiConfig() multiConfig {
 
 // WithMegaAppName 设置 mega 整体的 appName（如 "airdrop-mega"）。
 // 命名不用 WithAppName 是为了避免与老 Init.go 的同名 RpcInitHelperOption 冲突。
+//
+// 接受任意非空字符串；framework 会对头部的 "galxe-" 做一次去重 (避免
+// OTEL_SERVICE_NAME 变成 "galxe-galxe-foo")。
 func WithMegaAppName(name string) MultiOption {
 	return func(c *multiConfig) { c.appName = name }
 }
@@ -167,6 +184,31 @@ func WithMegaAppName(name string) MultiOption {
 // 稳定后业务 main 改 WithMigrationMode(false)。
 func WithMigrationMode(enabled bool) MultiOption {
 	return func(c *multiConfig) { c.migrationMode = enabled }
+}
+
+// WithRedis 注入共享 Redis client。
+//
+// 业务 sub-app 若使用 CacheFor 必须确保 mega main 在 Start 前调用 WithRedis
+// 或 WithDCache；缺失时 CacheFor 返回的 wrapper 会在首次调用 error fail-fast。
+// 多个 sub-app 共享同一 client，CacheFor wrapper 自动加 "{subapp}:" 前缀
+// 防止 key 冲突。
+func WithRedis(client redis.UniversalClient) MultiOption {
+	return func(c *multiConfig) { c.redis = client }
+}
+
+// WithDCache 注入共享 dcache 实例 (含 in-memory L1 + Redis L2)。
+//
+// CacheFor("subapp") 返回的 wrapper 内部调用此实例，自动加 "{subapp}:" 前缀。
+// 多个 sub-app 共享同一 dcache，省去单 Redis 多 namespace 的复杂度。
+func WithDCache(c *dcache.DCache) MultiOption {
+	return func(cfg *multiConfig) { cfg.dcache = c }
+}
+
+// normalizeMegaAppName 给 OTEL_SERVICE_NAME 拼接 "galxe-" 前缀做去重，
+// 避免用户传 "galxe-foo" 时变成 "galxe-galxe-foo"。
+func normalizeMegaAppName(name string) string {
+	name = strings.TrimSpace(name)
+	return strings.TrimPrefix(name, "galxe-")
 }
 
 // MustNewMultiResource 是 NewMultiResource 的 panic 版本。
@@ -181,8 +223,8 @@ func MustNewMultiResource(ctx context.Context, opts ...MultiOption) *MultiResour
 // NewMultiResource 创建 MultiResource 实例。
 //
 // 初始化所有 map / scheduler / startedAt，读取 MEGA_DISABLE_CRON env，
-// 设置 mega SDK env（OTEL_SERVICE_NAME 等）。Redis / DCache 默认 nil；
-// 业务 main 后续可通过未来 setter 注入（deps.go 的 CacheFor 已 null-safe）。
+// 设置 mega SDK env（OTEL_SERVICE_NAME 等）。Redis / DCache 通过 WithRedis /
+// WithDCache 注入；未注入时 CacheFor 返回的 wrapper 在首次方法调用时 error。
 func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource, error) {
 	cfg := defaultMultiConfig()
 	for _, opt := range opts {
@@ -209,6 +251,8 @@ func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource,
 		dbPools:   map[string]*wpgx.Pool{},
 		dbConfigs: map[string]DBConfig{},
 
+		redis:  cfg.redis,
+		dcache: cfg.dcache,
 		caches: map[string]*dcache.DCache{},
 
 		registries: map[string]*prometheus.Registry{},
@@ -218,6 +262,15 @@ func NewMultiResource(ctx context.Context, opts ...MultiOption) (*MultiResource,
 
 		startedAt: &atomic.Pointer[time.Time]{},
 	}
+
+	// Wire framework-lifecycle ctx (G1 + G2): everything started via m.Go uses
+	// this rootCtx as the parent, so when the user cancels their ctx (typical:
+	// signal.NotifyContext) OR when Stop() runs, every background goroutine
+	// observes the cancellation and exits its retry loop cleanly.
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.rootCtx, m.rootCancel = context.WithCancel(ctx)
 
 	sched, err := newDefaultScheduler()
 	if err != nil {
@@ -292,12 +345,20 @@ func (m *MultiResource) Register(args ...interface{}) error {
 }
 
 // registerOne 处理 Register 拆分后的单个 (SubApp, opts) 组。
+//
+// 并发安全：整个 register 过程串行化在 m.registerMu 下；processSubApp 内仍会
+// 短暂获取 m.mu 写共享 map (portMap / grpcServers / httpRouters) — 这是允许的
+// (registerMu 与 mu 顺序固定: registerMu -> mu，不会与读路径死锁，因为读路径
+// 从不持有 registerMu)。
 func (m *MultiResource) registerOne(app SubApp, opts ...RegisterOption) error {
 	name := app.Name()
 	if !subAppNameRe.MatchString(name) {
 		return fmt.Errorf("rpcutil: Register: invalid SubApp name %q (want %s)",
 			name, subAppNameRe.String())
 	}
+
+	m.registerMu.Lock()
+	defer m.registerMu.Unlock()
 
 	m.mu.Lock()
 	for _, rs := range m.subApps {
@@ -325,10 +386,44 @@ func (m *MultiResource) registerOne(app SubApp, opts ...RegisterOption) error {
 	return nil
 }
 
+// Redis returns the shared redis.UniversalClient injected via WithRedis.
+// Returns nil if no WithRedis was supplied; sub-app Init code must guard.
+//
+// Provided for sub-apps that need raw redis access (pub/sub, distributed
+// locks, ratelimiters) — CacheFor() is preferred for ordinary k/v with
+// automatic per-subapp namespacing.
+func (m *MultiResource) Redis() redis.UniversalClient {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.redis
+}
+
+// DCacheClient returns the shared *dcache.DCache injected via WithDCache.
+// Returns nil if no WithDCache was supplied; sub-app Init code must guard.
+//
+// Provided for sub-apps whose existing repos.Client constructor takes a raw
+// DCache (galxe-staking does). CacheFor() is preferred for new code.
+func (m *MultiResource) DCacheClient() *dcache.DCache {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.dcache
+}
+
 // SubAppContext 返回带 subapp logger 的 base ctx。
 // 详见 docs/12 §一 Layer 1。
+//
+// 派生自 context.Background() — 适用于 cron / one-off 调用场景，与
+// framework 生命周期解耦。framework-managed background goroutines (m.Go)
+// 使用 subAppCtxFromParent(rootCtx, subapp) 派生自 rootCtx 以便 Stop 时取消。
 func (m *MultiResource) SubAppContext(subapp string) context.Context {
-	ctx := gopkg_zerolog.WithSubApp(context.Background(), subapp)
+	return m.subAppCtxFromParent(context.Background(), subapp)
+}
+
+// subAppCtxFromParent attaches the per-subapp logger + WithSubApp marker to a
+// caller-supplied parent context. Internal — m.Go uses this with rootCtx;
+// SubAppContext uses it with context.Background.
+func (m *MultiResource) subAppCtxFromParent(parent context.Context, subapp string) context.Context {
+	ctx := gopkg_zerolog.WithSubApp(parent, subapp)
 	base := m.rootLogger
 	if base == nil {
 		base = &log.Logger
@@ -374,6 +469,34 @@ func (m *MultiResource) MetricRegistryFor(subapp string) prometheus.Registerer {
 	return reg
 }
 
+// gatherer returns a *lockedGatherers bound to m. promhttp.HandlerFor uses
+// it for the /metrics endpoint so:
+//
+//  1. concurrent Gather() (Prometheus scrape) + MetricRegistryFor (late
+//     sub-app init) cannot race the underlying slice;
+//  2. registries added AFTER /metrics handler was wired still show up on the
+//     next scrape (no stale snapshot of the slice's length / backing array).
+//
+// Addresses PR #115 review G4 (gemini).
+func (m *MultiResource) gatherer() prometheus.Gatherer {
+	return &lockedGatherers{m: m}
+}
+
+// lockedGatherers is a prometheus.Gatherer that takes m.mu while it builds a
+// fresh copy of m.gatherers, then calls Gather() outside the lock. This way
+// MetricRegistryFor can keep appending while a slow scrape is in flight.
+type lockedGatherers struct {
+	m *MultiResource
+}
+
+func (l *lockedGatherers) Gather() ([]*dto.MetricFamily, error) {
+	l.m.mu.Lock()
+	snapshot := make(prometheus.Gatherers, len(l.m.gatherers))
+	copy(snapshot, l.m.gatherers)
+	l.m.mu.Unlock()
+	return snapshot.Gather()
+}
+
 // subAppNames 返回 Register 顺序的 sub-app 名字列表。
 // health.go 的 orderedSubAppNames 自带排序逻辑，此处保持注册顺序不动。
 func (m *MultiResource) subAppNames() []string {
@@ -395,15 +518,25 @@ func (m *MultiResource) subAppByPort(port int) string {
 }
 
 // setMegaSDKEnv 在 NewMultiResource 时统一 mega 层 SDK env：
-//  1. 强制设置 OTEL_SERVICE_NAME = "galxe-<appName>"，覆盖 ConfigMap 残余值
-//  2. 扫描已注册 sub-app 的 envPrefix，若发现 sub-app ConfigMap 泄漏的 SDK
-//     env（如 STAKING_OTEL_SERVICE_NAME），输出 warn 但不 fail
+//  1. 强制设置 OTEL_SERVICE_NAME = "galxe-<appName>" (appName 经 normalize 去重)
 //
-// NewMultiResource 时 m.subApps 为空，循环 no-op；Register 之后业务也可
-// 再次调用以做二次审计。
+// 注意: docs §五 期望的 "扫描 sub-app envPrefix leak" 逻辑实际放在
+// scanLeakedSDKEnv()，由 Start 调用 — NewMultiResource 时 m.subApps 还为空，
+// 早期扫描总是 no-op (F6 修复)。
 func (m *MultiResource) setMegaSDKEnv() {
-	_ = os.Setenv("OTEL_SERVICE_NAME", "galxe-"+m.appName)
+	otelName := "galxe-" + normalizeMegaAppName(m.appName)
+	_ = os.Setenv("OTEL_SERVICE_NAME", otelName)
+}
+
+// scanLeakedSDKEnv 扫描所有已注册 sub-app 的 envPrefix，发现 ConfigMap 泄漏的
+// SDK env (如 STAKING_OTEL_SERVICE_NAME) 时 warn 一次。
+//
+// 由 Start 在 Register 完成之后、Phase1 之前调用；docs §五 行为的真正落地点。
+func (m *MultiResource) scanLeakedSDKEnv() {
 	names := m.subAppNames()
+	if len(names) == 0 {
+		return
+	}
 	for _, key := range sdkEnvBlacklist {
 		for _, subapp := range names {
 			prefix := strings.ToUpper(strings.ReplaceAll(subapp, "-", "_"))
@@ -449,37 +582,53 @@ func (m *MultiResource) RecordSubAppVersion(subapp, version string) {
 	m.subAppVersions[subapp] = version
 }
 
-// registerSubAppVersionMetric 注册 mega_subapp_version gauge（docs/12 §四）。
-// 使用 RecordSubAppVersion 记录的版本字符串；未记录的 sub-app 标记为 "unknown"。
-// sync.Once 保证多次调用幂等，避免 prometheus.MustRegister 重复 panic。
-func (m *MultiResource) registerSubAppVersionMetric() {
-	m.subappVersionOnce.Do(func() {
-		g := prometheus.NewGaugeVec(
+// subAppVersionGauge 是进程范围的 GaugeVec，所有 MultiResource 实例共享 (registry
+// 是全局 DefaultRegisterer)。
+//
+// 用 package-level sync.Once 保证 MustRegister 只执行一次 — 修复了原版 per-instance
+// sync.Once 在多 MultiResource 实例 (典型: tests) 下触发 "duplicate metric" panic
+// 的 bug (F1)。每个实例只往 gauge 里 Set 标签值，互不干扰。
+var (
+	subAppVersionGauge     *prometheus.GaugeVec
+	subAppVersionGaugeOnce sync.Once
+)
+
+func ensureSubAppVersionGauge() *prometheus.GaugeVec {
+	subAppVersionGaugeOnce.Do(func() {
+		subAppVersionGauge = prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Name: "mega_subapp_version",
 				Help: "Sub-app version (Go module pseudo-version or commit SHA) loaded in this mega",
 			},
 			[]string{"subapp", "version"},
 		)
-		m.mu.Lock()
-		apps := make([]registeredSubApp, len(m.subApps))
-		copy(apps, m.subApps)
-		versions := make(map[string]string, len(m.subAppVersions))
-		for k, v := range m.subAppVersions {
-			versions[k] = v
-		}
-		m.mu.Unlock()
-		for _, rs := range apps {
-			if rs.app == nil {
-				continue
-			}
-			name := rs.app.Name()
-			version := versions[name]
-			if version == "" {
-				version = "unknown"
-			}
-			g.WithLabelValues(name, version).Set(1)
-		}
-		prometheus.MustRegister(g)
+		prometheus.MustRegister(subAppVersionGauge)
 	})
+	return subAppVersionGauge
+}
+
+// registerSubAppVersionMetric 写 sub-app version 标签到全局 gauge (docs/12 §四)。
+// 使用 RecordSubAppVersion 记录的版本字符串；未记录的 sub-app 标记为 "unknown"。
+// 多次调用幂等 (Set 覆盖相同 label set)。
+func (m *MultiResource) registerSubAppVersionMetric() {
+	g := ensureSubAppVersionGauge()
+	m.mu.Lock()
+	apps := make([]registeredSubApp, len(m.subApps))
+	copy(apps, m.subApps)
+	versions := make(map[string]string, len(m.subAppVersions))
+	for k, v := range m.subAppVersions {
+		versions[k] = v
+	}
+	m.mu.Unlock()
+	for _, rs := range apps {
+		if rs.app == nil {
+			continue
+		}
+		name := rs.app.Name()
+		version := versions[name]
+		if version == "" {
+			version = "unknown"
+		}
+		g.WithLabelValues(name, version).Set(1)
+	}
 }

@@ -297,13 +297,8 @@ func TestStartStopHappyPath(t *testing.T) {
 	m.scheduler = sched
 	m.cronDisabled = false
 
-	// Pre-fire subappVersionOnce so Start's m.registerSubAppVersionMetric() is a
-	// no-op. The metric uses prometheus.MustRegister against the GLOBAL default
-	// registry — across multiple MultiResource instances (e.g. in the test
-	// suite) the second instance would panic with "duplicate metrics collector".
-	// This pre-fire matches what the multi.go owners assume in production
-	// (single MultiResource per process).
-	m.subappVersionOnce.Do(func() {})
+	// subapp version metric is now package-level sync.Once — no per-instance
+	// pre-fire needed (F1 fix). Test relies on single-Once behaviour.
 
 	ports := pickFreePorts(t, 1)
 	grpcPort := ports[0]
@@ -644,7 +639,7 @@ func TestStartStopWithHttpListener(t *testing.T) {
 	m := newStartupTestMR(t)
 	m.scheduler = sched
 	m.cronDisabled = false
-	m.subappVersionOnce.Do(func() {})
+	// subapp version metric is package-level (F1 fix).
 
 	ports := pickFreePorts(t, 2)
 	httpPort := ports[0]

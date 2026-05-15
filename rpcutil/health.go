@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -110,6 +111,11 @@ func (m *MultiResource) livenessHandler(w http.ResponseWriter, r *http.Request) 
 //   - 都 OK → 200 ready
 //
 // Optional 失败仅 inc metric，不影响状态。
+//
+// Checks fan out in parallel — for a mega with N sub-apps each declaring a
+// few HealthCheckables, the total time is max(Check) not Σ(Check) so even
+// a hundred deps comfortably fit into the k8s readinessProbe timeout (2s
+// in our patch.json). Addresses PR #115 review G3 (gemini).
 func (m *MultiResource) readinessHandler(w http.ResponseWriter, r *http.Request) {
 	if m.startedAt == nil || m.startedAt.Load() == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -117,20 +123,18 @@ func (m *MultiResource) readinessHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Snapshot health checks under lock to avoid racing with registerHealthCheck.
-	checks := m.snapshotHealthChecks()
+	results := m.runHealthChecksParallel(r.Context())
 
 	failed := make([]string, 0)
-	for _, rhc := range checks {
-		err := runCheckWithTimeout(r.Context(), rhc.hc.Check, readinessCheckTimeout)
-		if err == nil {
+	for _, res := range results {
+		if res.err == nil {
 			continue
 		}
 		depUnhealthyCounter.
-			WithLabelValues(rhc.subapp, rhc.hc.Name, rhc.hc.Criticality.String()).
+			WithLabelValues(res.subapp, res.name, res.criticality.String()).
 			Inc()
-		if rhc.hc.Criticality == Critical {
-			failed = append(failed, fmt.Sprintf("%s.%s: %s", rhc.subapp, rhc.hc.Name, err))
+		if res.criticality == Critical {
+			failed = append(failed, fmt.Sprintf("%s.%s: %s", res.subapp, res.name, res.err))
 		}
 	}
 
@@ -147,29 +151,28 @@ func (m *MultiResource) readinessHandler(w http.ResponseWriter, r *http.Request)
 }
 
 // debugHandler 返回所有 dep 的详细状态（JSON），SRE 用。详见 docs/12 §三。
+// Shares the parallel check path with readinessHandler.
 func (m *MultiResource) debugHandler(w http.ResponseWriter, r *http.Request) {
 	resp := healthDebugResponse{MegaName: m.appName}
 	if m.startedAt != nil {
 		resp.StartedAt = m.startedAt.Load()
 	}
 
-	checks := m.snapshotHealthChecks()
+	results := m.runHealthChecksParallel(r.Context())
 
 	bySubApp := make(map[string][]healthCheckResult)
-	for _, rhc := range checks {
-		start := time.Now()
-		err := runCheckWithTimeout(r.Context(), rhc.hc.Check, readinessCheckTimeout)
-		result := healthCheckResult{
-			Name:        rhc.hc.Name,
-			Criticality: rhc.hc.Criticality.String(),
+	for _, res := range results {
+		entry := healthCheckResult{
+			Name:        res.name,
+			Criticality: res.criticality.String(),
 			Status:      "ok",
-			DurationMs:  time.Since(start).Milliseconds(),
+			DurationMs:  res.durationMs,
 		}
-		if err != nil {
-			result.Status = "error"
-			result.Error = err.Error()
+		if res.err != nil {
+			entry.Status = "error"
+			entry.Error = res.err.Error()
 		}
-		bySubApp[rhc.subapp] = append(bySubApp[rhc.subapp], result)
+		bySubApp[res.subapp] = append(bySubApp[res.subapp], entry)
 	}
 
 	names := m.orderedSubAppNames(bySubApp)
@@ -184,6 +187,45 @@ func (m *MultiResource) debugHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(resp)
+}
+
+// checkResult is the per-dep outcome from a parallel sweep.
+type checkResult struct {
+	subapp      string
+	name        string
+	criticality Criticality
+	err         error
+	durationMs  int64
+}
+
+// runHealthChecksParallel fans out every snapshotted HealthCheckable into a
+// goroutine. Each check gets its own timeout. Returns results in the same
+// order as the snapshot so callers that need deterministic ordering get it.
+func (m *MultiResource) runHealthChecksParallel(parentCtx context.Context) []checkResult {
+	checks := m.snapshotHealthChecks()
+	if len(checks) == 0 {
+		return nil
+	}
+	results := make([]checkResult, len(checks))
+	var wg sync.WaitGroup
+	wg.Add(len(checks))
+	for i, rhc := range checks {
+		i, rhc := i, rhc
+		go func() {
+			defer wg.Done()
+			start := time.Now()
+			err := runCheckWithTimeout(parentCtx, rhc.hc.Check, readinessCheckTimeout)
+			results[i] = checkResult{
+				subapp:      rhc.subapp,
+				name:        rhc.hc.Name,
+				criticality: rhc.hc.Criticality,
+				err:         err,
+				durationMs:  time.Since(start).Milliseconds(),
+			}
+		}()
+	}
+	wg.Wait()
+	return results
 }
 
 // snapshotHealthChecks 在锁内返回 m.healthChecks 的浅拷贝。

@@ -81,10 +81,8 @@ func TestE2EFullChainTwoSubApps(t *testing.T) {
 	m.cronDisabled = true // skip scheduler — nil scheduler is fine when disabled
 	m.appName = "e2e-mega"
 
-	// Pre-fire version metric Once: earlier tests in the same `go test` run
-	// may have already registered mega_subapp_version against the global
-	// default registry. Skipping ours avoids the dup-register panic.
-	m.subappVersionOnce.Do(func() {})
+	// subapp version metric is now package-level sync.Once — no per-instance
+	// pre-fire needed (F1 fix).
 
 	ports := pickFreePorts(t, 2)
 	alphaPort, betaPort := ports[0], ports[1]
