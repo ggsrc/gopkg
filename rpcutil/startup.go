@@ -30,11 +30,17 @@ import (
 //   - HealthServerShutdownTimeout: Phase 6 health + metric server.
 //   - HTTPServerReadHeaderTimeout: hard cap on time spent reading request
 //     headers — protects against Slowloris-style attacks (gosec G112).
+//   - HTTPServerReadTimeout / WriteTimeout / IdleTimeout: bound slow-body
+//     attacks beyond Slowloris (Round-7 review S-008). Per-request handlers
+//     can still override these via gin middleware if they need long polls.
 const (
 	GracefulStopTimeout         = 30 * time.Second
 	ShutdownPhaseTimeout        = 30 * time.Second
 	HealthServerShutdownTimeout = 5 * time.Second
 	HTTPServerReadHeaderTimeout = 10 * time.Second
+	HTTPServerReadTimeout       = 60 * time.Second
+	HTTPServerWriteTimeout      = 60 * time.Second
+	HTTPServerIdleTimeout       = 120 * time.Second
 )
 
 // healthListenPort / metricListenPort 在 spec 中固定（docs/11 §一 Phase 4）。
@@ -97,22 +103,57 @@ func (m *MultiResource) Start(ctx context.Context) error {
 // 进程退出自动释放（GC 关闭 fd）。
 func (m *MultiResource) phase1BindListeners(ctx context.Context) error {
 	_ = ctx
+	// Snapshot the port lists under m.mu, then drop the lock for the blocking
+	// net.Listen syscalls — concurrent /metrics scrape via lockedGatherers
+	// (and any other reader of m.mu) is not blocked for the entire bind loop.
+	// Addresses PR #115 Round-7 review C-002 (latency-while-holding-lock).
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	for port := range m.grpcServers {
+	grpcPorts := make([]int, 0, len(m.grpcServers))
+	for p := range m.grpcServers {
+		grpcPorts = append(grpcPorts, p)
+	}
+	httpPorts := make([]int, 0, len(m.httpRouters))
+	for p := range m.httpRouters {
+		httpPorts = append(httpPorts, p)
+	}
+	m.mu.Unlock()
+
+	grpcLis := make(map[int]net.Listener, len(grpcPorts))
+	for _, port := range grpcPorts {
 		lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
+			// Close any already-bound listeners on this attempt so we don't
+			// leak ports if listen() fails midway.
+			for _, l := range grpcLis {
+				_ = l.Close()
+			}
 			return fmt.Errorf("listen :%d: %w", port, err)
 		}
-		m.grpcListeners[port] = lis
+		grpcLis[port] = lis
 	}
-	for port := range m.httpRouters {
+	httpLis := make(map[int]net.Listener, len(httpPorts))
+	for _, port := range httpPorts {
 		lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
+			for _, l := range grpcLis {
+				_ = l.Close()
+			}
+			for _, l := range httpLis {
+				_ = l.Close()
+			}
 			return fmt.Errorf("listen :%d: %w", port, err)
 		}
-		m.httpListeners[port] = lis
+		httpLis[port] = lis
 	}
+
+	m.mu.Lock()
+	for p, l := range grpcLis {
+		m.grpcListeners[p] = l
+	}
+	for p, l := range httpLis {
+		m.httpListeners[p] = l
+	}
+	m.mu.Unlock()
 	return nil
 }
 
@@ -221,6 +262,9 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 		srv := &http.Server{
 			Handler:           eng,
 			ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+			ReadTimeout:       HTTPServerReadTimeout,
+			WriteTimeout:      HTTPServerWriteTimeout,
+			IdleTimeout:       HTTPServerIdleTimeout,
 		}
 		m.httpServers[port] = srv
 		httpPairs[port] = httpPair{eng: eng, lis: lis, srv: srv}
@@ -249,6 +293,9 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 		Addr:              fmt.Sprintf(":%d", healthListenPort),
 		Handler:           m.healthMux(),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+		ReadTimeout:       HTTPServerReadTimeout,
+		WriteTimeout:      HTTPServerWriteTimeout,
+		IdleTimeout:       HTTPServerIdleTimeout,
 	}
 	m.mu.Lock()
 	m.healthServer = healthSrv
@@ -268,6 +315,9 @@ func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
 			ErrorHandling: promhttp.ContinueOnError,
 		}),
 		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+		ReadTimeout:       HTTPServerReadTimeout,
+		WriteTimeout:      HTTPServerWriteTimeout,
+		IdleTimeout:       HTTPServerIdleTimeout,
 	}
 	m.mu.Lock()
 	m.metricServer = metricSrv
@@ -324,15 +374,14 @@ func (m *MultiResource) Stop(ctx context.Context) error {
 func (m *MultiResource) doStop(ctx context.Context) {
 	log.Info().Str("app", m.appName).Msg("mega stopping")
 
-	// Phase 1: health off + cancel framework rootCtx so every background
-	// goroutine started via m.Go (and now every cron Fn via wrapCronFn)
-	// observes ctx.Done() and exits its retry loop instead of competing with
-	// the remaining shutdown phases. Addresses PR #115 review G1 + G2.
+	// Phase 1: readiness off — flip readiness to 503 so k8s endpoints
+	// controller starts removing this pod from the Service. DO NOT yet cancel
+	// rootCtx — in-flight cron Fns and m.Go workers (BLOCKER #4 made them
+	// rootCtx-aware) should get the drain window to finish gracefully.
+	// Round-7 review O-006: canceling rootCtx in Phase 1 aborted cron Fns
+	// mid-flight while traffic was still arriving, wasting the drain delay.
 	if m.startedAt != nil {
 		m.startedAt.Store(nil)
-	}
-	if m.rootCancel != nil {
-		m.rootCancel()
 	}
 
 	// Phase 1.5: drain delay. k8s readinessProbe is now seeing 503; let the
@@ -351,6 +400,15 @@ func (m *MultiResource) doStop(ctx context.Context) {
 			t.Stop()
 			log.Warn().Msg("Stop ctx canceled during drain delay; proceeding")
 		}
+	}
+
+	// Phase 1.7: NOW cancel framework rootCtx. Cron Fns (BLOCKER #4) + m.Go
+	// retry loops observe ctx.Done() and exit BEFORE Phase 2 pulls the rug
+	// out from under in-flight gRPC/HTTP requests AND before Phase 5 closes
+	// DB pools. Addresses PR #115 Round-7 review O-006: rootCancel moved
+	// out of Phase 1 so the drain delay is actually useful.
+	if m.rootCancel != nil {
+		m.rootCancel()
 	}
 
 	// Phase 2: grpc/http graceful stop in parallel

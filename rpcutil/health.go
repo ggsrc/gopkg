@@ -28,7 +28,9 @@ const readinessCheckTimeout = 2 * time.Second
 
 // depUnhealthyCounter tracks individual dep failures observed during a
 // readiness/debug evaluation. Labels: subapp / dep_name / criticality.
-// Wave 2 (observability.go) will relocate this to a central spot.
+// Intentionally lives here (not in observability.go) — see the
+// "framework metric vars (consolidated)" header note in observability.go
+// for the agreed split. Stays per-file to avoid a no-op cross-package diff.
 var depUnhealthyCounter = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "mega_dep_unhealthy_total",

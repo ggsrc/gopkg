@@ -38,9 +38,6 @@ import (
 	gopkg_zerolog "github.com/ggsrc/gopkg/zerolog"
 )
 
-// errNotImplemented 是占位错误。仅保留以兼容历史 stub 测试；本次实现不再返回。
-var errNotImplemented = errors.New("rpcutil: not implemented (Wave 0 stub)")
-
 // subAppNameRe enforces docs/10 §三 sub-app 命名规范：
 // 小写字母开头，仅允许小写字母 / 数字 / dash。
 var subAppNameRe = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
@@ -673,6 +670,13 @@ func (m *MultiResource) registerSubAppVersionMetric() {
 		if version == "" {
 			version = unknownVersion
 		}
+		// DeletePartialMatch drops any older (subapp=name, version=*) series so a
+		// Renovate-driven version bump doesn't leave stale labels behind. Without
+		// this, mega_subapp_version monotonically grows one series per historical
+		// SHA per subapp, blowing Prometheus TSDB head-block cardinality and
+		// breaking `count by (subapp) (mega_subapp_version == 1)` queries.
+		// Addresses PR #115 Round-7 review O-001.
+		g.DeletePartialMatch(prometheus.Labels{"subapp": name})
 		g.WithLabelValues(name, version).Set(1)
 	}
 }

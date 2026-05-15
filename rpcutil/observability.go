@@ -106,9 +106,12 @@ var (
 
 	cronDurationHist = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "mega_cron_duration_seconds",
-			Help:    "Cron job execution duration in seconds.",
-			Buckets: prometheus.DefBuckets,
+			Name: "mega_cron_duration_seconds",
+			Help: "Cron job execution duration in seconds. Buckets span 100ms..30min, " +
+				"covering typical sub-second probes through batch jobs. DefBuckets (5ms..10s) " +
+				"would land every minute-scale job in +Inf, breaking histogram_quantile.",
+			// Hand-picked buckets aligned to operational job sizes (PR #115 Round-7 review P-004/O-002).
+			Buckets: []float64{0.1, 0.5, 1, 5, 10, 30, 60, 180, 600, 1800},
 		},
 		[]string{"subapp", "job"},
 	)

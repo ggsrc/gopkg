@@ -12,11 +12,13 @@ package rpcutil
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 )
 
 // ListenerSpec 描述 sub-app 需要的一个 listener。
@@ -181,6 +183,15 @@ func lookupListenerLocked(portMap map[string]int, port int) (string, string) {
 
 // GrpcServerOn 返回 port 对应的 *grpc.Server，按需创建。
 // 详见 docs/12 §一 注入 chain。
+//
+// Defensive defaults applied (caller-supplied opts win on conflict — placed
+// AFTER the defaults in the slice):
+//   - MaxRecvMsgSize 8 MiB (vs grpc-go default 4 MiB; bounds payload size).
+//   - MaxConcurrentStreams 1024 (cap goroutine fan-out from one client).
+//   - Keepalive enforcement: reject clients pinging more often than 30s.
+//   - Keepalive params: probe idle conns + drop stale connections.
+//
+// Addresses PR #115 Round-7 review S-001 (gRPC DoS hardening).
 func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.Server {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -191,11 +202,20 @@ func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.
 		return s
 	}
 	m.ensureGrpcPrometheus()
-	// Inline lookup to avoid re-entering m.mu (m.subappForListener locks);
-	// safe because we already hold m.mu. May be "" if processSubApp hasn't
-	// recorded the listener yet — interceptors handle "" gracefully.
 	subapp := lookupSubappLocked(m.portMap, port)
-	chained := append([]grpc.ServerOption{
+	defaults := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(grpcDefaultMaxRecvMsgSize),
+		grpc.MaxConcurrentStreams(grpcDefaultMaxConcurrentStreams),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             30 * time.Second,
+			PermitWithoutStream: false,
+		}),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle: 5 * time.Minute,
+			MaxConnectionAge:  30 * time.Minute,
+			Time:              1 * time.Minute,
+			Timeout:           20 * time.Second,
+		}),
 		grpc.ChainUnaryInterceptor(
 			m.subappLoggerUnaryInterceptor(subapp),
 			m.panicRecoverUnaryInterceptor(subapp),
@@ -208,11 +228,16 @@ func (m *MultiResource) GrpcServerOn(port int, opts ...grpc.ServerOption) *grpc.
 			m.metricStreamInterceptor(subapp),
 			grpc_prometheus.StreamServerInterceptor,
 		),
-	}, opts...)
-	s := grpc.NewServer(chained...)
+	}
+	s := grpc.NewServer(append(defaults, opts...)...)
 	m.grpcServers[port] = s
 	return s
 }
+
+const (
+	grpcDefaultMaxRecvMsgSize       = 8 << 20 // 8 MiB
+	grpcDefaultMaxConcurrentStreams = 1024
+)
 
 // HttpRouterOn 返回 port 对应的 *gin.Engine，按需创建。
 // 详见 docs/12 §一 中间件链。
