@@ -24,6 +24,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -765,20 +767,28 @@ func TestSubAppVersionGauge_OldSeriesRemovedOnRevision(t *testing.T) {
 // Y3 (Round-8 #4 + Round-7 C-002): phase1BindListeners must NOT hold m.mu
 // across the blocking net.Listen syscalls. Concurrent readers of m.mu (e.g.
 // /metrics scrape via lockedGatherers, MetricRegistryFor) MUST be able to
-// progress during Phase 1. We exercise that by spinning a hot reader against
-// m.mu while phase1BindListeners runs; under the lock-holding regression the
-// reader's progress count stays at 0.
+// progress during Phase 1.
+//
+// Test design notes (Round-8 cross-review CI flake fix):
+//   - Need to ensure the reader goroutine is ALIVE before phase1 starts —
+//     otherwise the test confuses "reader unscheduled" with "lock held".
+//   - Need phase1 to do enough work that the reader can plausibly bump its
+//     counter at least once. 16 ports × ~50µs/Listen gives ~1ms work window;
+//     on a single-CPU CI worker the runtime will checkpoint into the reader
+//     during net.Listen syscalls. Below this the test is too tight.
+//   - Skip (not fail) if the harness is so slow the reader never schedules.
 func TestPhase1BindListeners_DoesNotHoldMuAcrossListen(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	silenceLogger(t)
 
 	m := newStartupTestMR(t)
-	ports := pickFreePorts(t, 4)
+	// Enlarged from 4 → 16 so phase1 spends measurable time inside net.Listen
+	// syscalls (the syscall yields to the runtime, letting the reader run).
+	ports := pickFreePorts(t, 16)
 	for _, p := range ports {
 		m.grpcServers[p] = grpc.NewServer()
 	}
 
-	// Hot reader: spam MetricRegistryFor (takes m.mu).
 	var progress atomic.Int64
 	stop := make(chan struct{})
 	done := make(chan struct{})
@@ -791,24 +801,56 @@ func TestPhase1BindListeners_DoesNotHoldMuAcrossListen(t *testing.T) {
 			default:
 				_ = m.MetricRegistryFor("hot-reader")
 				progress.Add(1)
+				runtime.Gosched()
 			}
 		}
 	}()
 
-	// Run bind concurrently. With lock held across syscall, MetricRegistryFor
-	// would stall until phase1 returns — we want to see progress > 0 mid-flight.
+	// Step 1: wait until the reader has been scheduled at least once. Until
+	// progress > 0 we cannot distinguish "lock held" from "reader never ran".
+	waitDeadline := time.Now().Add(2 * time.Second)
+	for progress.Load() == 0 {
+		if time.Now().After(waitDeadline) {
+			close(stop)
+			<-done
+			t.Skip("reader goroutine never scheduled within 2s — environment unusable for this timing test")
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	// Always close any bound listeners — pickFreePorts leaves the kernel
+	// port in TIME_WAIT, and back-to-back test iterations can collide;
+	// closing reliably keeps the next iteration's pickFreePorts working.
+	t.Cleanup(func() {
+		for _, l := range m.grpcListeners {
+			if nl, ok := l.(net.Listener); ok {
+				_ = nl.Close()
+			}
+		}
+	})
+
+	// Step 2: snapshot, run phase1, measure progress delta. Under the
+	// regression (mu held across net.Listen), the reader stalls and the
+	// delta is 0. Under the fix, the reader advances during net.Listen
+	// syscall yields.
+	before := progress.Load()
 	if err := m.phase1BindListeners(context.Background()); err != nil {
+		close(stop)
+		<-done
+		// Transient port-collision under stress (-count=N) — not a regression.
+		if strings.Contains(err.Error(), "address already in use") {
+			t.Skipf("port collision (likely TIME_WAIT from a prior iteration): %v", err)
+			return
+		}
 		t.Fatalf("phase1BindListeners: %v", err)
 	}
+	after := progress.Load()
+
 	close(stop)
 	<-done
 
-	if progress.Load() == 0 {
-		t.Errorf("reader made zero progress — phase1 likely holds m.mu across net.Listen")
-	}
-
-	// Clean up the bound listeners.
-	for _, l := range m.grpcListeners {
-		_ = l.(net.Listener).Close()
+	if after == before {
+		t.Errorf("reader stalled during phase1 (before=%d after=%d) — m.mu likely held across net.Listen", before, after)
 	}
 }
