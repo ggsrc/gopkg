@@ -154,6 +154,82 @@ func TestRegisterDB_AppNameFallback(t *testing.T) {
 	}
 }
 
+// "同实例不同库" 拓扑: 多 sub-app 共享同一 EnvPrefix (裸 POSTGRES_* 连接
+// 凭证), 各自用 DBConfig.DBName/AppName 在代码里区分目标 database, 不依赖
+// per-sub-app env 前缀。验证 override 生效且不互相污染。
+func TestRegisterDB_SharedInstanceDBNameOverride(t *testing.T) {
+	m := newDepsTestMR()
+	// 共享实例凭证 (模拟 cnpg-shared 注入的裸 POSTGRES_*)。
+	t.Setenv("POSTGRES_USERNAME", "galxe_app_user")
+	t.Setenv("POSTGRES_PASSWORD", "shared_pw")
+	t.Setenv("POSTGRES_HOST", "cnpg-shared-pooler-rw")
+	t.Setenv("POSTGRES_PORT", "5432")
+	t.Setenv("POSTGRES_DBNAME", "ignored_default") // 应被 cfg.DBName 覆盖
+
+	var stakingCfg *wpgx.Config
+	swapPoolFactory(t, fakePoolFactory(&stakingCfg))
+	if err := m.RegisterDB("staking", DBConfig{
+		EnvPrefix:   "POSTGRES",
+		DBName:      "staking",
+		AppName:     "galxe-mega-value-staking",
+		MaxConns:    15,
+		RequiredEnv: []string{"USERNAME", "PASSWORD", "HOST", "PORT"},
+	}); err != nil {
+		t.Fatalf("RegisterDB staking: %v", err)
+	}
+
+	var tokenCfg *wpgx.Config
+	swapPoolFactory(t, fakePoolFactory(&tokenCfg))
+	if err := m.RegisterDB("token", DBConfig{
+		EnvPrefix:   "POSTGRES",
+		DBName:      "token",
+		AppName:     "galxe-mega-value-token",
+		MaxConns:    10,
+		RequiredEnv: []string{"USERNAME", "PASSWORD", "HOST", "PORT"},
+	}); err != nil {
+		t.Fatalf("RegisterDB token: %v", err)
+	}
+
+	// 共享凭证两边一致。
+	if stakingCfg.Username != "galxe_app_user" || stakingCfg.Password != "shared_pw" ||
+		stakingCfg.Host != "cnpg-shared-pooler-rw" || stakingCfg.Port != 5432 {
+		t.Errorf("staking shared creds mismatch: %+v", stakingCfg)
+	}
+	if tokenCfg.Username != "galxe_app_user" || tokenCfg.Password != "shared_pw" {
+		t.Errorf("token shared creds mismatch: %+v", tokenCfg)
+	}
+	// DBName/AppName 各自被 cfg 覆盖, 不互相污染, 且压过 env 默认值。
+	if stakingCfg.DBName != "staking" || stakingCfg.AppName != "galxe-mega-value-staking" {
+		t.Errorf("staking override lost: dbname=%q appname=%q", stakingCfg.DBName, stakingCfg.AppName)
+	}
+	if tokenCfg.DBName != "token" || tokenCfg.AppName != "galxe-mega-value-token" {
+		t.Errorf("token override lost: dbname=%q appname=%q", tokenCfg.DBName, tokenCfg.AppName)
+	}
+	if stakingCfg.DBName == tokenCfg.DBName {
+		t.Errorf("per-sub-app DBName not isolated: both %q", stakingCfg.DBName)
+	}
+}
+
+// Empty DBName/AppName -> no override, envconfig value preserved.
+func TestRegisterDB_EmptyDBNameNoOverride(t *testing.T) {
+	m := newDepsTestMR()
+	t.Setenv("NOOV_USERNAME", "u")
+	t.Setenv("NOOV_DBNAME", "from_env")
+	t.Setenv("NOOV_APPNAME", "from_env_app")
+	var got *wpgx.Config
+	swapPoolFactory(t, fakePoolFactory(&got))
+
+	if err := m.RegisterDB("primary", DBConfig{EnvPrefix: "NOOV"}); err != nil {
+		t.Fatalf("RegisterDB: %v", err)
+	}
+	if got.DBName != "from_env" {
+		t.Errorf("empty cfg.DBName must not override env, got %q", got.DBName)
+	}
+	if got.AppName != "from_env_app" {
+		t.Errorf("empty cfg.AppName must not override env, got %q", got.AppName)
+	}
+}
+
 // Empty name / EnvPrefix -> error.
 func TestRegisterDB_RejectsEmptyArgs(t *testing.T) {
 	m := newDepsTestMR()

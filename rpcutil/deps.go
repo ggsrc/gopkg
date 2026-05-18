@@ -30,8 +30,23 @@ import (
 // 与老 gopkg/database/wpgx 区别: EnvPrefix 让每个 sub-app 有独立 env namespace
 // (如 "STAKING_POSTGRES")。详见 docs/10 §五 envconfig prefix 表格。
 type DBConfig struct {
-	// EnvPrefix 是 envconfig.Process 的第一参数, 如 "STAKING_POSTGRES"。
+	// EnvPrefix 是 envconfig.Process 的第一参数。
+	//
+	// 对"同一 PG 实例、不同 database"的 mega 拓扑 (多 sub-app 共享同一
+	// 实例的 host/port/user/password, 仅 dbname 不同), EnvPrefix 用共享的
+	// "POSTGRES" — 所有 sub-app 读同一份 cnpg-shared 注入的裸 POSTGRES_*
+	// 连接凭证, 各 sub-app 的库差异由下方 DBName 字段在代码里区分, 不再
+	// 需要 per-sub-app env 前缀。详见 docs/10 §五。
 	EnvPrefix string
+	// DBName 覆盖 envconfig 读到的 <EnvPrefix>_DBNAME (envconfig 默认值或
+	// 共享值)。这是"同实例不同库"拓扑下唯一的 per-sub-app 差异 —— 放在
+	// 代码里 (sub-app 的 RegisterDeps), 而非摊到 kustomize env 字面量。
+	// 空字符串表示不覆盖 (沿用 env / wpgx 默认)。
+	DBName string
+	// AppName 覆盖 <EnvPrefix>_APPNAME, 写进 PG application_name 用于
+	// pg_stat_activity 归因 (如 "galxe-mega-value-staking")。空表示不覆盖
+	// (沿用 processWpgxEnvWithAppNameFallback 的 pool-name 兜底)。
+	AppName string
 	// MaxConns 推荐 10–15。受 ValidateBudget 总预算约束。
 	MaxConns int
 	// MinConns 推荐 2。
@@ -161,7 +176,7 @@ func processWpgxEnvWithAppNameFallback(prefix, fallback string) (wpgx.Config, er
 //  1. name 唯一性校验
 //  2. envconfig.Process(EnvPrefix) 填充 wpgx.Config
 //  3. RequiredEnv 显式存在性校验 (envconfig 不会 fail 在 default value 上)
-//  4. 用户层 override (MaxConns/MinConns/MaxConnLifetime)
+//  4. 用户层 override (DBName/AppName/MaxConns/MinConns/MaxConnLifetime)
 //  5. newPoolFunc 建池 + 注册 close func
 func (m *MultiResource) RegisterDB(name string, cfg DBConfig) error {
 	if name == "" {
@@ -223,6 +238,15 @@ func (m *MultiResource) RegisterDB(name string, cfg DBConfig) error {
 	}
 	if cfg.MaxConnLifetime > 0 {
 		wpgxCfg.MaxConnLifetime = cfg.MaxConnLifetime
+	}
+	// DBName/AppName override: "同实例不同库" 拓扑下, 连接凭证走共享
+	// EnvPrefix (裸 POSTGRES_*), 每个 sub-app 仅以代码里的 DBName 区分目标
+	// database; AppName 写进 PG application_name 便于 pg_stat 归因。
+	if cfg.DBName != "" {
+		wpgxCfg.DBName = cfg.DBName
+	}
+	if cfg.AppName != "" {
+		wpgxCfg.AppName = cfg.AppName
 	}
 
 	pool, err := newPoolFunc(context.Background(), &wpgxCfg)
