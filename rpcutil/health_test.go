@@ -366,6 +366,12 @@ func TestHealthMux_Routes(t *testing.T) {
 		wantContent string
 	}{
 		{"/health/live", 200, "alive", ""},
+		// /health/alive is the legacy liveness path used by every kyrios-app
+		// k8s manifest (and the old gopkg/health pkg). The mega framework must
+		// keep serving it as an alias of /health/live or the k8s livenessProbe
+		// 404s on every check and kubelet restart-loops the pod. See the
+		// dedicated regression test below.
+		{"/health/alive", 200, "alive", ""},
 		{"/health/ready", 200, "ready", ""},
 		{"/health/debug", 200, "", "application/json"},
 	}
@@ -387,5 +393,30 @@ func TestHealthMux_Routes(t *testing.T) {
 					tc.path, rr.Header().Get("Content-Type"), tc.wantContent)
 			}
 		})
+	}
+}
+
+// TestHealthMux_LegacyAliveAlias is a regression test for the stg
+// galxe-mega-value restart loop: the kyrios-app k8s livenessProbe targets
+// /health/alive (the legacy path from gopkg/health, used fleet-wide), but the
+// mega/rpcutil framework only registered /health/live. http.ServeMux 404s on
+// the unregistered path, so every liveness check failed and kubelet killed the
+// container after failureThreshold*periodSeconds (~30s) → permanent restart
+// loop. /health/alive must stay a working alias of /health/live forever.
+func TestHealthMux_LegacyAliveAlias(t *testing.T) {
+	m := &MultiResource{} // no startedAt — liveness must not depend on it.
+	mux := m.healthMux()
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/health/alive", nil)
+	mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("/health/alive (k8s livenessProbe path) returned %d, want 200 "+
+			"— a non-200 here is exactly the stg restart-loop bug", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), "alive") {
+		t.Errorf("/health/alive body = %q, want to contain %q",
+			rr.Body.String(), "alive")
 	}
 }
