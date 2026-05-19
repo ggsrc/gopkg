@@ -92,9 +92,17 @@ func (m *MultiResource) registerHealthCheck(subapp string, checks []HealthChecka
 }
 
 // healthMux 返回 /health/* 路由 mux。
+//
+// /health/alive 是 kyrios-app 全集群 k8s livenessProbe 沿用的旧路径（来自
+// 旧的 gopkg/health 包约定）。mega/rpcutil 框架的 liveness 路径是
+// /health/live，但 manifest 仍打 /health/alive —— 必须保留 /health/alive
+// 作为 /health/live 的别名，否则 http.ServeMux 对未注册路径返回 404，
+// livenessProbe 每次都失败，kubelet 在 failureThreshold*periodSeconds（约
+// 30s）后无限重启容器（stg galxe-mega-value 起不来的根因）。
 func (m *MultiResource) healthMux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health/live", m.livenessHandler)
+	mux.HandleFunc("/health/alive", m.livenessHandler) // legacy k8s liveness path alias
 	mux.HandleFunc("/health/ready", m.readinessHandler)
 	mux.HandleFunc("/health/debug", m.debugHandler)
 	return mux
