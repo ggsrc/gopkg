@@ -1,0 +1,673 @@
+// startup.go — mega framework L1 Start (4-phase) + Stop (6-phase) +
+// route registry adapter for SubApp.RegisterRoutes.
+//
+// 详见 mega-project/docs/11-framework-startup-shutdown.md §一 (Start)、§二
+// (Stop)、§五 (signal handler 示例).
+//
+// 文件所有权：Wave 4 agent H. 本文件只读取 MultiResource 字段，不扩字段。
+//
+// Cardinal property: Phase 1 → 4 in Start; Phase 1 → 6 in Stop. NEVER reverse.
+package rpcutil
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog/log"
+	"google.golang.org/grpc"
+)
+
+// 关停相关的统一超时常量（详见 docs/11 §二）：
+//   - GracefulStopTimeout: Phase 2 每个 grpc/http server graceful 等待上限.
+//   - ShutdownPhaseTimeout: Phase 3/4/5 子阶段单步 ctx timeout.
+//   - HealthServerShutdownTimeout: Phase 6 health + metric server.
+//   - HTTPServerReadHeaderTimeout: hard cap on time spent reading request
+//     headers — protects against Slowloris-style attacks (gosec G112).
+//   - HTTPServerReadTimeout: bounds slow-body uploads on sub-app HTTP
+//     listeners (Round-7 S-008).
+//   - HTTPServerIdleTimeout: cleans up idle keep-alive conns.
+//   - WriteTimeout intentionally NOT set as a framework default — would
+//     break SSE / server-streaming responses / large file downloads. Per-
+//     handler middleware can still set it where appropriate (Round-8 #3).
+const (
+	GracefulStopTimeout         = 30 * time.Second
+	ShutdownPhaseTimeout        = 30 * time.Second
+	HealthServerShutdownTimeout = 5 * time.Second
+	HTTPServerReadHeaderTimeout = 10 * time.Second
+	HTTPServerReadTimeout       = 60 * time.Second
+	HTTPServerIdleTimeout       = 120 * time.Second
+)
+
+// healthListenPort / metricListenPort 在 spec 中固定（docs/11 §一 Phase 4）。
+// 暴露为 var 是为了让单测覆写到 ephemeral 端口，避免与 host 上既有进程冲突。
+var (
+	healthListenPort = 8080
+	metricListenPort = 4014
+)
+
+// ---- Start (4 phases) ------------------------------------------------------
+
+// Start 同步启动整个 mega：
+//
+//  1. 绑定所有 grpc / http listener（fail fast）。
+//  2. 对每个 sub-app 依次 Init → RegisterRoutes → 注册 HealthCheck。
+//  3. 注册并启动 cron scheduler。
+//  4. 启动 grpc.Serve / http.Serve / health endpoint / metric endpoint goroutines；
+//     设置 startedAt 让 /health/ready 起来。
+//
+// 然后阻塞等 ctx.Done（典型来源：main 里 signal handler 收到 SIGTERM 后 cancel），
+// 阻塞解除后调用 Stop(context.Background()) 触发 6 阶段反向关停。
+//
+// 任一 Phase 失败立即返回 wrapped error；本函数不主动调 Stop，
+// 调用方（main）若 Start 失败可自行判断是否补救（通常 os.Exit(1)）。
+func (m *MultiResource) Start(ctx context.Context) error {
+	// SDK env leak audit (docs §五) — runs after Register so subApps is populated.
+	m.scanLeakedSDKEnv()
+
+	if err := m.phase1BindListeners(ctx); err != nil {
+		return fmt.Errorf("phase1 bind listeners: %w", err)
+	}
+	if err := m.phase2InitSubApps(ctx); err != nil {
+		return fmt.Errorf("phase2 init sub-apps: %w", err)
+	}
+	if err := m.phase3RegisterCron(ctx); err != nil {
+		return fmt.Errorf("phase3 register cron: %w", err)
+	}
+	if err := m.phase4OpenHealth(ctx); err != nil {
+		return fmt.Errorf("phase4 open health: %w", err)
+	}
+
+	// Idempotent version metric registration (sync.Once inside multi.go).
+	m.registerSubAppVersionMetric()
+
+	now := time.Now()
+	m.startedAt.Store(&now)
+	log.Info().
+		Str("app", m.appName).
+		Int("subapps", len(m.subApps)).
+		Int("listeners", len(m.portMap)).
+		Msg("mega started")
+
+	// 阻塞直到 ctx 被取消（main 的 signal handler 在 SIGTERM 时 cancel）。
+	<-ctx.Done()
+	return m.Stop(context.Background())
+}
+
+// phase1BindListeners 按 m.grpcServers / m.httpRouters 中已注册的端口顺次
+// net.Listen。任一失败立即返回；已绑定的 listener 仍存活，由 Stop 阶段或
+// 进程退出自动释放（GC 关闭 fd）。
+func (m *MultiResource) phase1BindListeners(ctx context.Context) error {
+	_ = ctx
+	// Round-8 cross-review #6: flip phase1BindStarted so any concurrent
+	// GrpcServerOn / HttpRouterOn call from a misbehaving sub-app refuses
+	// to create a fresh server — would leak (no listener gets bound for it).
+	m.phase1BindStarted.Store(true)
+	// Snapshot the port lists under m.mu, then drop the lock for the blocking
+	// net.Listen syscalls — concurrent /metrics scrape via lockedGatherers
+	// (and any other reader of m.mu) is not blocked for the entire bind loop.
+	// Addresses PR #115 Round-7 review C-002 (latency-while-holding-lock).
+	m.mu.Lock()
+	grpcPorts := make([]int, 0, len(m.grpcServers))
+	for p := range m.grpcServers {
+		grpcPorts = append(grpcPorts, p)
+	}
+	httpPorts := make([]int, 0, len(m.httpRouters))
+	for p := range m.httpRouters {
+		httpPorts = append(httpPorts, p)
+	}
+	m.mu.Unlock()
+
+	grpcLis := make(map[int]net.Listener, len(grpcPorts))
+	for _, port := range grpcPorts {
+		lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			// Close any already-bound listeners on this attempt so we don't
+			// leak ports if listen() fails midway.
+			for _, l := range grpcLis {
+				_ = l.Close()
+			}
+			return fmt.Errorf("listen :%d: %w", port, err)
+		}
+		grpcLis[port] = lis
+	}
+	httpLis := make(map[int]net.Listener, len(httpPorts))
+	for _, port := range httpPorts {
+		lis, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
+		if err != nil {
+			for _, l := range grpcLis {
+				_ = l.Close()
+			}
+			for _, l := range httpLis {
+				_ = l.Close()
+			}
+			return fmt.Errorf("listen :%d: %w", port, err)
+		}
+		httpLis[port] = lis
+	}
+
+	m.mu.Lock()
+	for p, l := range grpcLis {
+		m.grpcListeners[p] = l
+	}
+	for p, l := range httpLis {
+		m.httpListeners[p] = l
+	}
+	m.mu.Unlock()
+	return nil
+}
+
+// phase2InitSubApps 对每个 sub-app 调 Init → RegisterRoutes →
+// registerHealthCheck。
+//
+// 失败时按反向顺序对已成功 Init 的 sub-app 调用 Close (best-effort, 每个 30s ctx),
+// 然后返回 wrapped error。这保证 Init 失败循环不会泄漏已开过的 DB pool /
+// goroutine / file handle。注意:
+//   - Close 只对 Init 成功的子集调用,从未 Init 的 sub-app 不会被 Close (避免空指针 panic);
+//   - RegisterRoutes 失败时,该 sub-app 自身的 Init 已成功,所以也算 initialized;
+//   - rollback 的 Close 错误只 log,不覆盖原始 Init/RegisterRoutes 错误。
+//
+// Addresses PR #115 cross-review BLOCKER #1.
+func (m *MultiResource) phase2InitSubApps(ctx context.Context) error {
+	_ = ctx
+	apps := m.snapshotSubApps()
+	initialized := make([]registeredSubApp, 0, len(apps))
+	for _, rs := range apps {
+		if err := rs.app.Init(m); err != nil {
+			m.rollbackInitialized(initialized)
+			return fmt.Errorf("subapp=%s Init: %w", rs.app.Name(), err)
+		}
+		initialized = append(initialized, rs)
+		reg := newRouteRegistry(m, rs.app.Name(), rs.portMap)
+		if err := rs.app.RegisterRoutes(reg); err != nil {
+			m.rollbackInitialized(initialized)
+			return fmt.Errorf("subapp=%s RegisterRoutes: %w", rs.app.Name(), err)
+		}
+		m.registerHealthCheck(rs.app.Name(), rs.app.HealthChecks())
+	}
+	// Record successfully initialized sub-apps for Stop's Phase 4 — Close is
+	// only called on apps whose Init returned nil so a never-Init'd sub-app
+	// never has Close invoked.
+	m.mu.Lock()
+	m.initializedApps = append(m.initializedApps, initialized...)
+	m.mu.Unlock()
+	return nil
+}
+
+// rollbackInitialized 反向调用已 Init sub-app 的 Close,best-effort,
+// 每个独立 30s 超时。phase2InitSubApps 失败路径专用。
+func (m *MultiResource) rollbackInitialized(initialized []registeredSubApp) {
+	for i := len(initialized) - 1; i >= 0; i-- {
+		rs := initialized[i]
+		cCtx, cancel := context.WithTimeout(context.Background(), ShutdownPhaseTimeout)
+		if err := rs.app.Close(cCtx); err != nil {
+			log.Warn().
+				Err(err).
+				Str("subapp", rs.app.Name()).
+				Msg("phase2 rollback: Close error")
+		}
+		cancel()
+	}
+}
+
+// phase3RegisterCron 注册所有 sub-app cron job 并启动 scheduler。
+// cronDisabled=true 时 registerCron 内部跳过实际注册，scheduler.Start 也跳过。
+func (m *MultiResource) phase3RegisterCron(ctx context.Context) error {
+	_ = ctx
+	apps := m.snapshotSubApps()
+	for _, rs := range apps {
+		if err := m.registerCron(rs.app.Name(), rs.app.Cron()); err != nil {
+			return err
+		}
+	}
+	if !m.cronDisabled && m.scheduler != nil {
+		m.scheduler.Start()
+	}
+	return nil
+}
+
+// phase4OpenHealth 启动 grpc / http / health / metric 四类 server goroutine。
+// 创建 *http.Server 时把它写回 m.httpServers / m.healthServer / m.metricServer，
+// Stop 阶段读取它们做 graceful Shutdown。
+func (m *MultiResource) phase4OpenHealth(ctx context.Context) error {
+	_ = ctx
+	type grpcPair struct {
+		srv *grpc.Server
+		lis net.Listener
+	}
+	type httpPair struct {
+		eng *gin.Engine
+		lis net.Listener
+		srv *http.Server
+	}
+
+	m.mu.Lock()
+	grpcPairs := make(map[int]grpcPair, len(m.grpcServers))
+	for port, srv := range m.grpcServers {
+		lis, ok := m.grpcListeners[port].(net.Listener)
+		if !ok {
+			m.mu.Unlock()
+			return fmt.Errorf("phase4: no listener bound for grpc port %d", port)
+		}
+		grpcPairs[port] = grpcPair{srv: srv, lis: lis}
+	}
+
+	httpPairs := make(map[int]httpPair, len(m.httpRouters))
+	for port, eng := range m.httpRouters {
+		lis, ok := m.httpListeners[port].(net.Listener)
+		if !ok {
+			m.mu.Unlock()
+			return fmt.Errorf("phase4: no listener bound for http port %d", port)
+		}
+		srv := &http.Server{
+			Handler:           eng,
+			ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+			ReadTimeout:       HTTPServerReadTimeout,
+			// WriteTimeout intentionally unset — see constant block godoc.
+			IdleTimeout: HTTPServerIdleTimeout,
+		}
+		m.httpServers[port] = srv
+		httpPairs[port] = httpPair{eng: eng, lis: lis, srv: srv}
+	}
+	m.mu.Unlock()
+
+	// PR #115 Round-10 M1: bind /health AND /metrics ports SYNCHRONOUSLY
+	// BEFORE spawning any Serve goroutine. The Round-9 fix made health +
+	// metric binds synchronous (their previous ListenAndServe-in-goroutine
+	// silently dropped port-conflict errors), but sub-app grpc/http Serve
+	// goroutines were still being spawned BEFORE health/metric bind. On a
+	// health-bind failure (or metric-bind failure) the function returned
+	// error while sub-app Serve goroutines were already running with their
+	// listeners open — leaked until process exit. Now: bind first, spawn
+	// only after every bind succeeds, so a fail-fast path leaks nothing.
+	healthSrv := &http.Server{
+		Handler:           m.healthMux(),
+		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+		ReadTimeout:       HTTPServerReadTimeout,
+		IdleTimeout:       HTTPServerIdleTimeout,
+		// WriteTimeout intentionally unset.
+	}
+	healthLis, err := net.Listen("tcp", fmt.Sprintf(":%d", healthListenPort))
+	if err != nil {
+		return fmt.Errorf("phase4: bind health :%d: %w", healthListenPort, err)
+	}
+
+	// /metrics (聚合所有 sub-app registry + DefaultGatherer).
+	// Wraps the gatherer slice in a lockedGatherers so Prometheus scrapes
+	// don't race with MetricRegistryFor appends (PR #115 review G4 fix).
+	// /metrics — only ReadHeaderTimeout + IdleTimeout. NO Read/Write Timeout:
+	// high-cardinality scrapes (80 sub-app × hundreds of series) can legitimately
+	// exceed minute-scale write durations under load (Round-8 cross-review #3).
+	metricSrv := &http.Server{
+		Handler: promhttp.HandlerFor(m.gatherer(), promhttp.HandlerOpts{
+			ErrorHandling: promhttp.ContinueOnError,
+		}),
+		ReadHeaderTimeout: HTTPServerReadHeaderTimeout,
+		IdleTimeout:       HTTPServerIdleTimeout,
+	}
+	metricLis, err := net.Listen("tcp", fmt.Sprintf(":%d", metricListenPort))
+	if err != nil {
+		_ = healthLis.Close()
+		return fmt.Errorf("phase4: bind metric :%d: %w", metricListenPort, err)
+	}
+
+	m.mu.Lock()
+	m.healthServer = healthSrv
+	m.metricServer = metricSrv
+	m.mu.Unlock()
+
+	// All ports bound — NOW spawn every Serve goroutine.
+	for port, pair := range grpcPairs {
+		port, pair := port, pair
+		go func() {
+			if err := pair.srv.Serve(pair.lis); err != nil && err != grpc.ErrServerStopped {
+				log.Error().Err(err).Int("port", port).Msg("grpc Serve exited")
+			}
+		}()
+	}
+	for port, pair := range httpPairs {
+		port, pair := port, pair
+		go func() {
+			if err := pair.srv.Serve(pair.lis); err != nil && err != http.ErrServerClosed {
+				log.Error().Err(err).Int("port", port).Msg("http Serve exited")
+			}
+		}()
+	}
+	go func() {
+		if err := healthSrv.Serve(healthLis); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Int("port", healthListenPort).Msg("health Serve exited")
+		}
+	}()
+	go func() {
+		if err := metricSrv.Serve(metricLis); err != nil && err != http.ErrServerClosed {
+			log.Error().Err(err).Int("port", metricListenPort).Msg("metric Serve exited")
+		}
+	}()
+
+	return nil
+}
+
+// ---- Stop (6 phases, reverse) ---------------------------------------------
+
+// Stop 反向 6 阶段关停：
+//
+//  1. health off（clear startedAt → /health/ready 立刻 503 starting，
+//     让 k8s 在剩余阶段开始前先把流量摘走）+ rootCancel。
+//     1.5 可选 drain delay (WithPreStopDrainDelay) — 让 k8s endpoints
+//     controller 把本 pod 从 Service 摘掉再开始拒绝流量。
+//  2. 并行 GracefulStop grpc / http server（每个 30s timeout，超时强 Stop/Close
+//     并 inc shutdownAbortCounter）。
+//  3. Stop cron scheduler（30s ctx）。
+//  4. SubApp.Close 并行（30s ctx 每个；只对 Init 成功的 sub-app 调用）。
+//  5. closeFuncs (DB pool close 等) 并行 (30s ctx 每个; 典型场景间无依赖)。
+//  6. health + metric server Shutdown（5s ctx 各）。
+//
+// 幂等: 多次调用只执行一次 (sync.Once)，后续调用立刻返回 nil。Start 在
+// <-ctx.Done() 后会调一次 Stop；main 的 signal handler 也常会调一次 Stop —
+// 这两条路径下 sub-app Close / closeFuncs 不会双触发。
+//
+// ctx 语义: 调用方传入的 ctx 用于 bound 整个 Stop 的 wall time。每个 phase
+// 用 min(ShutdownPhaseTimeout, ctx 剩余) 作为内部超时，ctx 已取消时 phase
+// 立即放弃 (best-effort)。传 context.Background() 表示无上限 (走 phase 各自的
+// 30s default)。
+//
+// 任一子阶段错误仅 log + metric，不中断后续阶段（最大努力关停）。
+//
+// 幂等性 addresses PR #115 cross-review BLOCKER #2.
+// drain delay addresses PR #115 cross-review BLOCKER #3.
+// ctx honoring addresses PR #115 cross-review HIGH #5.
+// Phase 5 parallel addresses PR #115 cross-review HIGH #6.
+func (m *MultiResource) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.stopOnce.Do(func() { m.doStop(ctx) })
+	return nil
+}
+
+// doStop is the actual stop implementation, gated by stopOnce in Stop().
+// Split into a method for testability and to keep Stop's surface area minimal.
+func (m *MultiResource) doStop(ctx context.Context) {
+	log.Info().Str("app", m.appName).Msg("mega stopping")
+	// Round-8 cross-review #6: gate further server creation.
+	m.shutdownStarted.Store(true)
+
+	// Phase 1: readiness off — flip readiness to 503 so k8s endpoints
+	// controller starts removing this pod from the Service. DO NOT yet cancel
+	// rootCtx — in-flight cron Fns and m.Go workers (BLOCKER #4 made them
+	// rootCtx-aware) should get the drain window to finish gracefully.
+	// Round-7 review O-006: canceling rootCtx in Phase 1 aborted cron Fns
+	// mid-flight while traffic was still arriving, wasting the drain delay.
+	if m.startedAt != nil {
+		m.startedAt.Store(nil)
+	}
+
+	// Phase 1.3: begin scheduler shutdown (NON-blocking). gocron stops
+	// issuing new ticks immediately; in-flight Fns continue under rootCtx
+	// (still alive). Without this, gocron could tick a fresh job during the
+	// drain delay and Phase 1.7 would cancel it ~ms after launch — "light a
+	// fire then pull the plug". Run it async so drain + rootCancel + Phase 2
+	// proceed concurrently with the gocron Shutdown drain. Phase 3 joins.
+	// Addresses PR #115 Round-8 cross-review #1.
+	var schedDone chan struct{}
+	if !m.cronDisabled && m.scheduler != nil {
+		schedDone = make(chan struct{})
+		go func() {
+			defer close(schedDone)
+			sCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
+			defer cancel()
+			if err := m.scheduler.Stop(sCtx); err != nil {
+				log.Warn().Err(err).Msg("scheduler stop error")
+			}
+		}()
+	}
+
+	// Phase 1.5: drain delay. k8s readinessProbe is now seeing 503; let the
+	// endpoints controller propagate the change to kube-proxy iptables on every
+	// node before GracefulStop starts refusing new streams. Honors caller's
+	// ctx — if Stop's ctx fires (typical: SIGKILL countdown ≈ grace period)
+	// the delay is cut short.
+	if m.preStopDrainDelay > 0 {
+		log.Info().
+			Dur("delay", m.preStopDrainDelay).
+			Msg("Stop Phase 1.5: pre-stop drain delay (readiness already 503)")
+		t := time.NewTimer(m.preStopDrainDelay)
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			t.Stop()
+			log.Warn().Msg("Stop ctx canceled during drain delay; proceeding")
+		}
+	}
+
+	// Phase 1.7: NOW cancel framework rootCtx. Cron Fns (BLOCKER #4) + m.Go
+	// retry loops observe ctx.Done() and exit BEFORE Phase 2 pulls the rug
+	// out from under in-flight gRPC/HTTP requests AND before Phase 5 closes
+	// DB pools. Addresses PR #115 Round-7 review O-006: rootCancel moved
+	// out of Phase 1 so the drain delay is actually useful.
+	if m.rootCancel != nil {
+		m.rootCancel()
+	}
+
+	// Phase 2: grpc/http graceful stop in parallel
+	m.stopServers(ctx)
+
+	// Phase 3: join the scheduler-shutdown goroutine started in Phase 1.3.
+	// gocron.Shutdown blocks until in-flight Fns return; Phase 1.7 rootCancel
+	// already told them to exit, so this usually completes quickly. Cap the
+	// wait so a misbehaving cron can't hold up the rest of shutdown forever.
+	if schedDone != nil {
+		select {
+		case <-schedDone:
+		case <-time.After(ShutdownPhaseTimeout):
+			log.Warn().Msg("scheduler shutdown did not complete by Phase 3 deadline; continuing")
+		}
+	}
+
+	// Phase 4: sub-app Close in parallel — only initialized sub-apps. Each
+	// Close gets its own ctx capped at min(parent remaining, 30s). Total Phase
+	// 4 time = max(Close), not Σ(Close). Reverse-order semantics are dropped
+	// because the framework forbids cross-sub-app dependencies in Close
+	// (docs/11 §二). Addresses PR #115 review G6 (gemini) and cross-review #1.
+	m.mu.Lock()
+	apps := make([]registeredSubApp, len(m.initializedApps))
+	copy(apps, m.initializedApps)
+	m.mu.Unlock()
+
+	var closeWg sync.WaitGroup
+	for _, rs := range apps {
+		rs := rs
+		closeWg.Add(1)
+		go func() {
+			defer closeWg.Done()
+			cCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
+			defer cancel()
+			if err := rs.app.Close(cCtx); err != nil {
+				log.Warn().Err(err).Str("subapp", rs.app.Name()).Msg("Close error")
+				shutdownAbortCounter.WithLabelValues(rs.app.Name(), "close").Inc()
+			}
+		}()
+	}
+	closeWg.Wait()
+
+	// Phase 5: shared resource close funcs (DB pools, Redis, etc.) — parallel.
+	// N pools × 30s sequential exceeded typical terminationGracePeriodSeconds
+	// even when other phases fit fine. Each closeFunc gets its own ctx capped
+	// at min(parent remaining, 30s). Addresses PR #115 cross-review HIGH #6.
+	m.mu.Lock()
+	closes := make([]func(context.Context) error, len(m.closeFuncs))
+	copy(closes, m.closeFuncs)
+	m.mu.Unlock()
+	var closeFuncWg sync.WaitGroup
+	for _, fn := range closes {
+		fn := fn
+		closeFuncWg.Add(1)
+		go func() {
+			defer closeFuncWg.Done()
+			fCtx, cancel := phaseCtx(ctx, ShutdownPhaseTimeout)
+			defer cancel()
+			if err := fn(fCtx); err != nil {
+				log.Warn().Err(err).Msg("closeFunc error")
+			}
+		}()
+	}
+	closeFuncWg.Wait()
+
+	// Phase 6: health + metric server (last so SRE can scrape until end)
+	m.mu.Lock()
+	hs, _ := m.healthServer.(*http.Server)
+	ms, _ := m.metricServer.(*http.Server)
+	m.mu.Unlock()
+	if hs != nil {
+		hCtx, cancel := phaseCtx(ctx, HealthServerShutdownTimeout)
+		_ = hs.Shutdown(hCtx)
+		cancel()
+	}
+	if ms != nil {
+		mCtx, cancel := phaseCtx(ctx, HealthServerShutdownTimeout)
+		_ = ms.Shutdown(mCtx)
+		cancel()
+	}
+
+	log.Info().Msg("mega stopped")
+}
+
+// phaseCtx returns a context for a single Stop phase whose deadline is
+// min(parent deadline, fallback duration from now). If parent has no deadline,
+// the fallback is used directly. Callers must invoke the returned CancelFunc.
+func phaseCtx(parent context.Context, fallback time.Duration) (context.Context, context.CancelFunc) {
+	if dl, ok := parent.Deadline(); ok {
+		remaining := time.Until(dl)
+		if remaining <= 0 {
+			// Parent ctx already past deadline — return a pre-canceled child
+			// so the phase body falls through immediately.
+			c, cancel := context.WithCancel(parent)
+			cancel()
+			return c, func() {}
+		}
+		if remaining < fallback {
+			return context.WithTimeout(parent, remaining)
+		}
+	}
+	return context.WithTimeout(parent, fallback)
+}
+
+// stopServers 在 Phase 2 并行 GracefulStop grpc + http server。
+// 超时 → 强制 Stop/Close 并 inc shutdownAbortCounter(subapp, "grpc"|"http").
+//
+// parent ctx 用于 bound 每个 server 的 graceful 等待 — 当 Stop 的整体 ctx
+// 已经超时时，所有 in-flight server 立即降级到强 Stop/Close 而不再等。
+func (m *MultiResource) stopServers(parent context.Context) {
+	m.mu.Lock()
+	grpcSnapshot := make(map[int]*grpc.Server, len(m.grpcServers))
+	for p, s := range m.grpcServers {
+		grpcSnapshot[p] = s
+	}
+	httpSnapshot := make(map[int]*http.Server, len(m.httpServers))
+	for p, srv := range m.httpServers {
+		if s, ok := srv.(*http.Server); ok {
+			httpSnapshot[p] = s
+		}
+	}
+	m.mu.Unlock()
+
+	var wg sync.WaitGroup
+	for port, srv := range grpcSnapshot {
+		port, srv := port, srv
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			gCtx, cancel := phaseCtx(parent, GracefulStopTimeout)
+			defer cancel()
+			done := make(chan struct{})
+			go func() {
+				srv.GracefulStop()
+				close(done)
+			}()
+			select {
+			case <-done:
+				log.Info().Int("port", port).Msg("grpc stopped gracefully")
+			case <-gCtx.Done():
+				log.Warn().Int("port", port).Msg("grpc graceful stop timeout; forcing")
+				srv.Stop()
+				shutdownAbortCounter.WithLabelValues(m.subAppByPort(port), "grpc").Inc()
+			}
+		}()
+	}
+	for port, srv := range httpSnapshot {
+		port, srv := port, srv
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sCtx, cancel := phaseCtx(parent, GracefulStopTimeout)
+			defer cancel()
+			err := srv.Shutdown(sCtx)
+			if err == nil {
+				return
+			}
+			// Only count true timeouts as aborts (F7). Other shutdown errors
+			// (e.g. ErrServerClosed when already-stopped, transient io errors)
+			// still surface in logs but should not pollute the abort metric.
+			log.Warn().Err(err).Int("port", port).Msg("http shutdown error")
+			if errors.Is(err, context.DeadlineExceeded) {
+				shutdownAbortCounter.WithLabelValues(m.subAppByPort(port), "http").Inc()
+				_ = srv.Close()
+			}
+		}()
+	}
+	wg.Wait()
+}
+
+// snapshotSubApps 在锁内浅拷贝 m.subApps，供 phase2 / phase3 / Stop 无锁遍历。
+func (m *MultiResource) snapshotSubApps() []registeredSubApp {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	apps := make([]registeredSubApp, len(m.subApps))
+	copy(apps, m.subApps)
+	return apps
+}
+
+// ---- routeRegistry (RouteRegistry impl) -----------------------------------
+
+// routeRegistry 在 phase2 给 sub-app.RegisterRoutes 用：按 listener 名字
+// 查 portMap → port → 调用 m.GrpcServerOn / HttpRouterOn 返回已存在的 server /
+// engine（GrpcServerOn / HttpRouterOn 自带幂等）。
+type routeRegistry struct {
+	m       *MultiResource
+	subapp  string
+	portMap PortMap
+}
+
+func newRouteRegistry(m *MultiResource, subapp string, pm PortMap) RouteRegistry {
+	return &routeRegistry{m: m, subapp: subapp, portMap: pm}
+}
+
+func (r *routeRegistry) GRPC(listenerName string) *grpc.Server {
+	port, ok := r.portMap[listenerName]
+	if !ok {
+		log.Warn().
+			Str("subapp", r.subapp).
+			Str("listener", listenerName).
+			Msg("RouteRegistry.GRPC: unknown listener name")
+		return nil
+	}
+	return r.m.GrpcServerOn(port)
+}
+
+func (r *routeRegistry) HTTP(listenerName string) *gin.Engine {
+	port, ok := r.portMap[listenerName]
+	if !ok {
+		log.Warn().
+			Str("subapp", r.subapp).
+			Str("listener", listenerName).
+			Msg("RouteRegistry.HTTP: unknown listener name")
+		return nil
+	}
+	return r.m.HttpRouterOn(port)
+}
