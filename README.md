@@ -1,13 +1,10 @@
-> ⚠️ **Deprecation Notice**  
-> Please use blueprint-go-toolkits in ggsrc for everything except the following modules:
+> ⚠️ **Frozen (2026-11-03). Use [github.com/ggsrc/gglib](https://github.com/ggsrc/gglib) instead.**
 >
-> - grpc
-> - interceptor
-> - mctx
-> - utils
-> - rpcutil
-> - httputil
-> - profiling
+> gopkg gets no new features and no routine dependency updates. Its
+> remaining users (`gopkg/otel` and `gopkg/env` in a few Alva services) move
+> to gglib's single observability entry point; after that the repository
+> will be archived. The modules stay downloadable from the Go module proxy.
+> The previous notice pointed to blueprint-go-toolkits, which is archived.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/PKief/vscode-material-icon-theme/ec559a9f6bfd399b82bb44393651661b08aaf7ba/icons/folder-markdown-open.svg" width="100" alt="project-logo">
